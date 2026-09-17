@@ -1,0 +1,24 @@
+{
+  "name": "daily-memo",
+  "productName": "星河录",
+  "version": "1.0.0",
+  "private": true,
+  "description": "星河录 — 桌面端每日任务与备忘管理",
+  "main": "src/main.js",
+  "scripts": {
+    "start": "electron .",
+    "smoke": "electron . --smoke",
+    "selftest": "node src/selftest.js",
+    "icon": "node tools/make-icon.js",
+    "ico": "node tools/make-ico.js",
+    "dist": "electron-builder --win --x64 --publish never"
+  },
+  "license": "MIT",
+  "devDependencies": {
+    "electron": "^44.3.0",
+    "electron-builder": "^26.15.3"
+  },
+  "dependencies": {
+    "electron-updater": "^6.8.9"
+  }
+}

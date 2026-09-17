@@ -1,0 +1,14 @@
+{
+  "appId": "com.xinghelu.app",
+  "appName": "星河录",
+  "webDir": "www",
+  "backgroundColor": "#070b1c",
+  "android": {
+    "allowMixedContent": true
+  },
+  "plugins": {
+    "CapacitorHttp": {
+      "enabled": true
+    }
+  }
+}

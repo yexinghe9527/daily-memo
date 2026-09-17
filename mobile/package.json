@@ -1,0 +1,20 @@
+{
+  "name": "xinghelu-mobile",
+  "version": "1.0.0",
+  "private": true,
+  "description": "星河录 · 移动端（Capacitor 封装）",
+  "scripts": {
+    "sync": "cap sync",
+    "add:android": "cap add android",
+    "build:android": "cap build android",
+    "open:android": "cap open android"
+  },
+  "dependencies": {
+    "@capacitor/android": "^8.5.2",
+    "@capacitor/core": "^8.5.2",
+    "@capacitor/local-notifications": "^8.3.1"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "^8.5.2"
+  }
+}

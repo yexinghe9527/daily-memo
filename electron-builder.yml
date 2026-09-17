@@ -1,0 +1,49 @@
+appId: com.xinghelu.desktop
+productName: 星河录
+copyright: Copyright © 2026 星河录
+
+directories:
+  output: dist
+  buildResources: build
+
+# 只打包应用代码本身（无第三方运行时依赖），保持体积小、启动快
+files:
+  - src/**/*
+  - assets/**/*
+  - package.json
+  - '!**/*.map'
+
+# 复用本地已解压的 Electron，避免打包时再从 GitHub 下载 ~150MB
+electronDist: node_modules/electron/dist
+
+asar: true
+
+win:
+  icon: assets/icon.ico
+  target:
+    - target: nsis
+      arch:
+        - x64
+
+nsis:
+  oneClick: false
+  perMachine: false
+  allowElevation: true
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: 星河录
+  # 必须是 ASCII：electron-builder 会对非 ASCII 产物名做「安全化」，
+  # 导致 latest.yml 里写的文件名和实际文件不一致，自动更新直接 404。
+  artifactName: Xinghelu-Setup-${version}.${ext}
+  deleteAppDataOnUninstall: false
+  installerLanguages:
+    - zh_CN
+
+# 自动更新：CI 会把安装包 + latest.yml 发到 GitHub Release，客户端从这里检查新版本。
+# 本地构建用 `--publish never`，不会误发。
+publish:
+  provider: github
+  owner: yexinghe9527
+  repo: daily-memo
+

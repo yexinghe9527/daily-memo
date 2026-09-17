@@ -1,0 +1,260 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="light">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'"
+    />
+    <title>星河录</title>
+    <link rel="stylesheet" href="styles.css" />
+    <link rel="stylesheet" href="mobile.css" />
+  </head>
+  <body class="mobile">
+    <div class="shooting-star s1" aria-hidden="true"></div>
+    <div class="shooting-star s2" aria-hidden="true"></div>
+    <div class="shooting-star s3" aria-hidden="true"></div>
+
+    <div class="app m-app">
+      <!-- ───────────── 顶栏 ───────────── -->
+      <header class="m-header">
+        <div class="m-header-top">
+          <button id="prevDay" class="m-icon-btn" aria-label="前一天">‹</button>
+          <div class="date-label m-date-label">
+            <b id="dateTitle">—</b>
+            <span id="dateSub">—</span>
+          </div>
+          <button id="nextDay" class="m-icon-btn" aria-label="后一天">›</button>
+          <button id="todayBtn" class="m-chip">今天</button>
+          <button id="searchToggle" class="m-icon-btn" aria-label="搜索">⌕</button>
+          <button id="syncBtn" class="m-icon-btn" aria-label="与电脑同步">⟳</button>
+          <button id="settingsBtn" class="m-icon-btn" aria-label="设置">⚙</button>
+        </div>
+        <div class="m-searchbar" id="mSearchBar" hidden>
+          <input id="searchInput" type="search" placeholder="搜索任务 / 备忘…" autocomplete="off" />
+          <div id="searchResults" class="search-results"></div>
+        </div>
+      </header>
+
+      <!-- ───────────── 今日概览 ───────────── -->
+      <section class="m-stats">
+        <div class="ring m-ring" id="progressRing">
+          <svg viewBox="0 0 120 120" aria-hidden="true">
+            <circle class="ring-track" cx="60" cy="60" r="52" />
+            <circle class="ring-value" id="ringValue" cx="60" cy="60" r="52" />
+          </svg>
+          <div class="ring-label"><b id="ringPct">0%</b></div>
+        </div>
+        <div class="m-stats-body">
+          <b id="ringHint">今天还没有任务</b>
+          <div class="m-mini-stats">
+            <span>待办 <b id="statRemaining">0</b></span>
+            <span>已完成 <b id="statDone">0</b></span>
+            <span>连续 <b id="statStreak">0</b></span>
+          </div>
+        </div>
+      </section>
+
+      <div class="carry-banner" id="carryBanner" hidden></div>
+
+      <!-- ───────────── 任务列表 ───────────── -->
+      <section class="m-tasks">
+        <header class="region-head m-region-head">
+          <span id="taskSummary">—</span>
+          <div class="region-actions">
+            <select id="typeFilter" title="按类型筛选">
+              <option value="all">全部</option>
+              <option value="work">工作</option>
+              <option value="personal">私人</option>
+              <option value="none">未分类</option>
+            </select>
+            <select id="sortMode" title="排序方式">
+              <option value="manual">手动顺序</option>
+              <option value="priority">按优先级</option>
+              <option value="created">按创建时间</option>
+            </select>
+            <button id="clearDoneBtn" class="ghost-btn">清已完成</button>
+          </div>
+        </header>
+        <ul id="taskList" class="task-list"></ul>
+        <div id="emptyState" class="empty-state" hidden>
+          <div class="empty-mark">✓</div>
+          <p id="emptyText">今天还没有任务，点下面的「添加任务」加一条吧。</p>
+        </div>
+      </section>
+
+      <!-- ───────────── 底部操作栏 ───────────── -->
+      <nav class="m-bottom-bar">
+        <button id="openComposer" class="m-add-btn">＋ 添加任务</button>
+        <button id="openCalendar" class="m-icon-btn m-nav-btn" aria-label="日历与统计">▤</button>
+        <button id="openMemo" class="m-icon-btn m-nav-btn" aria-label="每日备忘">✎</button>
+      </nav>
+    </div>
+
+    <!-- ───────────── 添加任务抽屉 ───────────── -->
+    <div class="m-sheet" id="sheetComposer" hidden>
+      <div class="m-sheet-mask" data-close="sheetComposer"></div>
+      <div class="m-sheet-body">
+        <div class="m-sheet-head">
+          <b>添加任务</b>
+          <button class="m-icon-btn" data-close="sheetComposer" aria-label="关闭">✕</button>
+        </div>
+        <label class="m-field">
+          <span>任务内容</span>
+          <input id="newTitle" placeholder="要做什么？" maxlength="200" autocomplete="off" />
+        </label>
+        <div class="m-field-row">
+          <label class="m-field">
+            <span>类型</span>
+            <select id="newType">
+              <option value="none">未分类</option>
+              <option value="work">工作</option>
+              <option value="personal">私人</option>
+            </select>
+          </label>
+          <label class="m-field">
+            <span>优先级</span>
+            <select id="newPriority">
+              <option value="0">普通</option>
+              <option value="1">重要</option>
+              <option value="2">紧急</option>
+            </select>
+          </label>
+          <label class="m-field">
+            <span>重复</span>
+            <select id="newRepeat">
+              <option value="none">不重复</option>
+              <option value="daily">每天</option>
+              <option value="weekdays">工作日</option>
+              <option value="weekly">每周</option>
+              <option value="monthly">每月</option>
+            </select>
+          </label>
+        </div>
+        <label class="m-field">
+          <span>提醒时间（留空则不提醒）</span>
+          <input id="newRemind" type="datetime-local" />
+        </label>
+        <label class="m-field">
+          <span>备注</span>
+          <textarea id="newNote" placeholder="补充说明（可选）" maxlength="5000"></textarea>
+        </label>
+        <button id="addBtn" class="m-primary-btn">添加任务</button>
+      </div>
+    </div>
+
+    <!-- ───────────── 日历与统计抽屉 ───────────── -->
+    <div class="m-sheet" id="sheetCalendar" hidden>
+      <div class="m-sheet-mask" data-close="sheetCalendar"></div>
+      <div class="m-sheet-body">
+        <div class="m-sheet-head">
+          <b>日历与统计</b>
+          <button class="m-icon-btn" data-close="sheetCalendar" aria-label="关闭">✕</button>
+        </div>
+        <section class="panel">
+          <header class="panel-head">
+            <button id="calPrev" class="icon-btn" title="上个月">‹</button>
+            <span id="calTitle">—</span>
+            <button id="calNext" class="icon-btn" title="下个月">›</button>
+          </header>
+          <div class="weekdays">
+            <span>日</span><span>一</span><span>二</span><span>三</span><span>四</span><span>五</span><span>六</span>
+          </div>
+          <div class="calendar" id="calendar"></div>
+        </section>
+        <section class="panel">
+          <header class="panel-head"><span>最近 7 天</span><span class="muted" id="weekTotal">—</span></header>
+          <div class="week-bars" id="weekBars"></div>
+        </section>
+      </div>
+    </div>
+
+    <!-- ───────────── 每日备忘抽屉 ───────────── -->
+    <div class="m-sheet" id="sheetMemo" hidden>
+      <div class="m-sheet-mask" data-close="sheetMemo"></div>
+      <div class="m-sheet-body">
+        <div class="m-sheet-head">
+          <b>每日备忘</b>
+          <span class="muted" id="memoSaved"></span>
+          <button class="m-icon-btn" data-close="sheetMemo" aria-label="关闭">✕</button>
+        </div>
+        <textarea id="memo" placeholder="随手记点什么，停手自动保存…" spellcheck="false"></textarea>
+      </div>
+    </div>
+
+    <!-- ───────────── 设置 ───────────── -->
+    <div class="modal" id="settingsModal" hidden>
+      <div class="modal-card">
+        <header class="modal-head">
+          <b>设置</b>
+          <button id="settingsClose" class="icon-btn">✕</button>
+        </header>
+        <div class="modal-body">
+          <label class="row">
+            <span>主题</span>
+            <select id="setTheme">
+              <option value="auto">跟随系统</option>
+              <option value="light">浅色</option>
+              <option value="dark">深色</option>
+              <option value="galaxy">星辰大海</option>
+            </select>
+          </label>
+          <label class="row">
+            <span>排序方式</span>
+            <select id="setSort">
+              <option value="manual">手动顺序</option>
+              <option value="priority">按优先级</option>
+              <option value="created">按创建时间</option>
+            </select>
+          </label>
+          <label class="row">
+            <span>未完成自动顺延到今天</span>
+            <input id="setCarry" type="checkbox" />
+          </label>
+          <label class="row">
+            <span>顺延时间窗口（天）</span>
+            <input id="setCarryWin" type="number" min="1" max="365" step="1" />
+          </label>
+          <label class="row">
+            <span>开启到点提醒</span>
+            <input id="setRemind" type="checkbox" />
+          </label>
+          <label class="row" data-desktop-only>
+            <span>开机自动启动（静默驻留托盘）</span>
+            <input id="setAutostart" type="checkbox" />
+          </label>
+          <label class="row" data-desktop-only>
+            <span>点关闭按钮时最小化到托盘</span>
+            <input id="setTray" type="checkbox" />
+          </label>
+          <label class="row">
+            <span>电脑地址（同一 Wi-Fi）</span>
+            <input id="syncServerInput" type="text" placeholder="192.168.1.5:8765" />
+          </label>
+          <div class="hint">
+            局域网：填电脑「设置 → 手机同步服务」里显示的地址。<br />
+            想在 4G/5G 下也能同步：电脑和手机都装 Tailscale，这里填电脑的 Tailscale 地址（100.x.x.x:8765）即可，无需改路由器。
+          </div>
+          <div class="modal-actions">
+            <button id="syncNowBtn" class="ghost-btn">立即与电脑同步</button>
+          </div>
+          <div class="hint" id="syncStatusText">—</div>
+          <div class="modal-actions">
+            <button id="exportBtn" class="ghost-btn">导出备份</button>
+            <button id="importBtn" class="ghost-btn">导入备份</button>
+            <button id="revealBtn" class="ghost-btn" data-desktop-only>数据目录</button>
+          </div>
+          <div class="hint" id="dataPathText">—</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="toast" id="toast" hidden></div>
+
+    <script src="store.js"></script>
+    <script src="bridge.js"></script>
+    <script src="app.js"></script>
+    <script src="mobile-ui.js"></script>
+  </body>
+</html>

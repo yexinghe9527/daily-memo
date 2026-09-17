@@ -1,0 +1,153 @@
+name: CI / Release
+
+on:
+  push:
+    branches: [main, master]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  # ── 每次提交都跑：数据层断言，快、不需要图形界面 ──
+  test:
+    name: 数据层断言
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      # 桌面端数据层不依赖 Electron，直接跑
+      - name: 桌面数据层自检
+        run: node src/selftest.js
+
+      # 安卓数据层是浏览器版 store.js，用全局注入的方式在 Node 里跑
+      - name: 安卓数据层自检
+        run: node mobile/test/store.test.js
+
+  # ── 打 tag 时才构建产物 ──
+  windows:
+    name: Windows 安装包
+    needs: [test]
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: 安装依赖
+        run: npm ci
+
+      - name: 端到端冒烟（真启动 Electron）
+        run: npm run smoke
+
+      - name: 打包 NSIS 安装包
+        run: npx electron-builder --win --x64
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-installer
+          path: |
+            dist/*.exe
+            dist/*.exe.blockmap
+            dist/latest.yml
+          if-no-files-found: error
+
+  android:
+    name: 安卓 APK
+    needs: [test]
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: mobile/package-lock.json
+
+      # Capacitor 8 要求 JDK 21
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - uses: android-actions/setup-android@v3
+
+      - name: 安装 Android SDK 组件
+        run: |
+          yes | sdkmanager --licenses > /dev/null 2>&1 || true
+          sdkmanager "platform-tools" "platforms;android-36" "build-tools;36.0.0"
+
+      # 仓库里默认配的是国内镜像（给中文 Windows 用的），CI 在海外，换回官方源更快
+      - name: 切回官方 Gradle 源
+        working-directory: mobile/android
+        run: |
+          sed -i 's|^distributionUrl=.*|distributionUrl=https\\://services.gradle.org/distributions/gradle-8.14.3-bin.zip|' gradle/wrapper/gradle-wrapper.properties
+
+      - name: 安装依赖并同步
+        working-directory: mobile
+        run: |
+          npm ci
+          npx cap sync android
+
+      # 配了 XINGHELU_KEYSTORE_BASE64 这个 Secret 才会签署名。
+      # 生成方式（本机执行）：
+      #   base64 -w0 xinghelu-release.keystore   （Windows: certutil -encode 后去掉头尾）
+      # 再把输出存进仓库 Secret，另外三个密码/别名同理。
+      - name: 准备签名密钥
+        working-directory: mobile/android
+        env:
+          KEYSTORE_B64: ${{ secrets.XINGHELU_KEYSTORE_BASE64 }}
+          STORE_PW: ${{ secrets.XINGHELU_STORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.XINGHELU_KEY_ALIAS }}
+          KEY_PW: ${{ secrets.XINGHELU_KEY_PASSWORD }}
+        run: |
+          if [ -n "$KEYSTORE_B64" ]; then
+            echo "$KEYSTORE_B64" | base64 -d > ../release.keystore
+            printf 'storeFile=../release.keystore\nstorePassword=%s\nkeyAlias=%s\nkeyPassword=%s\n' \
+              "$STORE_PW" "$KEY_ALIAS" "$KEY_PW" > keystore.properties
+            echo "已注入签名配置"
+          else
+            echo "未配置签名 Secrets，本次将产出未签名包"
+          fi
+
+      - name: 构建 release APK
+        working-directory: mobile/android
+        run: |
+          chmod +x gradlew
+          ./gradlew assembleRelease --no-daemon
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: android-apk
+          path: mobile/android/app/build/outputs/apk/release/*.apk
+          if-no-files-found: error
+
+  release:
+    name: 发布 Release
+    needs: [windows, android]
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          # latest.yml 和 blockmap 必须在 Release 里，客户端自动更新才能发现并增量下载
+          files: |
+            artifacts/windows-installer/*
+            artifacts/android-apk/*.apk
+          generate_release_notes: true
+          draft: false

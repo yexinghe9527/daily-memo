@@ -1,0 +1,19 @@
+# 统一换行符，避免 Windows 提交 CRLF 导致整文件 diff 和 CI 异常
+* text=auto eol=lf
+
+# Windows 批处理必须是 CRLF
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+# 二进制，别做任何转换
+*.png binary
+*.jpg binary
+*.ico binary
+*.jar binary
+*.keystore binary
+*.jks binary
+*.exe binary
+*.apk binary
+*.so binary
+*.dll binary
+*.zip binary

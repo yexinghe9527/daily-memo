@@ -1,0 +1,27 @@
+# ── 依赖与构建产物 ──
+node_modules/
+.npm-cache/
+.cache/
+.electron-builder-cache/
+dist/
+*.log
+*.tmp
+smoke-report.json
+
+# 发布产物走 GitHub Releases（CI 自动构建），不进仓库
+*.apk
+*.zip
+*.blockmap
+
+# ── 签名密钥与本地路径：绝不进仓库 ──
+*.keystore
+*.jks
+keystore.properties
+local.properties
+mobile/android/local.properties
+
+# ── 本地构建/自检的临时输出 ──
+.smoke-*.txt
+.sync-*.txt
+.tray*.txt
+mobile/gradle.log

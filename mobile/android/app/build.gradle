@@ -1,0 +1,79 @@
+apply plugin: 'com.android.application'
+
+// 签名信息从 keystore.properties（已 gitignore）或环境变量读取，绝不写进仓库。
+// CI 里改用 XINGHELU_STORE_FILE / XINGHELU_STORE_PASSWORD / XINGHELU_KEY_ALIAS / XINGHELU_KEY_PASSWORD。
+def keystoreProps = new Properties()
+def keystorePropsFile = rootProject.file('keystore.properties')
+if (keystorePropsFile.exists()) {
+    keystorePropsFile.withInputStream { keystoreProps.load(it) }
+}
+def ksStoreFile = keystoreProps.getProperty('storeFile') ?: System.getenv('XINGHELU_STORE_FILE')
+def ksStorePassword = keystoreProps.getProperty('storePassword') ?: System.getenv('XINGHELU_STORE_PASSWORD')
+def ksKeyAlias = keystoreProps.getProperty('keyAlias') ?: System.getenv('XINGHELU_KEY_ALIAS')
+def ksKeyPassword = keystoreProps.getProperty('keyPassword') ?: System.getenv('XINGHELU_KEY_PASSWORD')
+def hasSigning = ksStoreFile && ksStorePassword && ksKeyAlias && ksKeyPassword
+
+android {
+    namespace = "com.xinghelu.app"
+    compileSdk = rootProject.ext.compileSdkVersion
+    signingConfigs {
+        release {
+            if (hasSigning) {
+                storeFile file(ksStoreFile)
+                storePassword ksStorePassword
+                keyAlias ksKeyAlias
+                keyPassword ksKeyPassword
+            }
+        }
+    }
+    defaultConfig {
+        applicationId "com.xinghelu.app"
+        minSdkVersion rootProject.ext.minSdkVersion
+        targetSdkVersion rootProject.ext.targetSdkVersion
+        versionCode 1
+        versionName "1.0"
+        testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
+        aaptOptions {
+             // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
+             // Default: https://android.googlesource.com/platform/frameworks/base/+/282e181b58cf72b6ca770dc7ca5f91f135444502/tools/aapt/AaptAssets.cpp#61
+            ignoreAssetsPattern = '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
+        }
+    }
+    buildTypes {
+        release {
+            // 没配签名时退化成未签名包：贡献者不配密钥也能构建验证
+            if (hasSigning) signingConfig signingConfigs.release
+            minifyEnabled false
+            proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
+        }
+    }
+}
+
+repositories {
+    flatDir{
+        dirs '../capacitor-cordova-android-plugins/src/main/libs', 'libs'
+    }
+}
+
+dependencies {
+    implementation fileTree(include: ['*.jar'], dir: 'libs')
+    implementation "androidx.appcompat:appcompat:$androidxAppCompatVersion"
+    implementation "androidx.coordinatorlayout:coordinatorlayout:$androidxCoordinatorLayoutVersion"
+    implementation "androidx.core:core-splashscreen:$coreSplashScreenVersion"
+    implementation project(':capacitor-android')
+    testImplementation "junit:junit:$junitVersion"
+    androidTestImplementation "androidx.test.ext:junit:$androidxJunitVersion"
+    androidTestImplementation "androidx.test.espresso:espresso-core:$androidxEspressoCoreVersion"
+    implementation project(':capacitor-cordova-android-plugins')
+}
+
+apply from: 'capacitor.build.gradle'
+
+try {
+    def servicesJSON = file('google-services.json')
+    if (servicesJSON.text) {
+        apply plugin: 'com.google.gms.google-services'
+    }
+} catch(Exception e) {
+    logger.info("google-services.json not found, google-services plugin not applied. Push Notifications won't work")
+}
