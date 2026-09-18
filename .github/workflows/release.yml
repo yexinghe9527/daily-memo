@@ -227,21 +227,30 @@ jobs:
       # action-gh-release 只会上传新文件，不会删旧的。重发同一个 tag 时，
       # 上一轮的产物（比如改名前的 app-release-unsigned.apk）会留在 Release 里，
       # 下载的人可能正好点到那个坏包。所以先清空该 Release 的资产再上传。
+      #
+      # 用 API 而不是 `gh release view <tag>`：删掉标签再重建时，Release 会短暂变成
+      # 「孤儿」状态，按标签名查不到，于是清理会被静默跳过（这个坑踩过）。
+      # 按 tag_name 从全量列表里筛，孤儿状态也能找到。
       - name: 清掉该 Release 上的旧资产
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
-          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
-            gh release view "$GITHUB_REF_NAME" --json assets --jq '.assets[].name' | while read -r name; do
-              if [ -n "$name" ]; then
-                echo "删除旧资产：$name"
-                gh release delete-asset "$GITHUB_REF_NAME" "$name" -y
-              fi
-            done
-          else
-            echo "该 tag 还没有 Release，跳过清理"
+          ids=$(gh api "repos/$GITHUB_REPOSITORY/releases?per_page=100" \
+                  --jq ".[] | select(.tag_name == \"$GITHUB_REF_NAME\") | .id")
+          if [ -z "$ids" ]; then
+            echo "还没有对应 $GITHUB_REF_NAME 的 Release，跳过清理"
+            exit 0
           fi
+          for rid in $ids; do
+            echo "找到 Release id=$rid"
+            gh api "repos/$GITHUB_REPOSITORY/releases/$rid/assets?per_page=100" \
+              --jq '.[] | "\(.id) \(.name)"' | while read -r aid name; do
+              [ -z "$aid" ] && continue
+              echo "  删除旧资产：$name"
+              gh api -X DELETE "repos/$GITHUB_REPOSITORY/releases/assets/$aid"
+            done
+          done
 
       - uses: softprops/action-gh-release@v2
         with:
