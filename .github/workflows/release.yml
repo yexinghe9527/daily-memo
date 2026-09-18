@@ -67,6 +67,12 @@ jobs:
     needs: [test]
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
+    env:
+      # ubuntu-latest 镜像本来就预装了 Android SDK。
+      # 不用 android-actions/setup-android@v3：它在托管 runner 上不稳定，
+      # 一旦它失败，后面所有步骤都会被跳过（v1.0.0 首次发布就是这么挂的）。
+      ANDROID_HOME: /usr/local/lib/android/sdk
+      ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -81,12 +87,27 @@ jobs:
           distribution: temurin
           java-version: 21
 
-      - uses: android-actions/setup-android@v3
-
-      - name: 安装 Android SDK 组件
+      - name: 准备 Android SDK 组件
         run: |
-          yes | sdkmanager --licenses > /dev/null 2>&1 || true
-          sdkmanager "platform-tools" "platforms;android-36" "build-tools;36.0.0"
+          set -euo pipefail
+          SDK="$ANDROID_HOME"
+          SDKMANAGER="$SDK/cmdline-tools/latest/bin/sdkmanager"
+          if [ ! -x "$SDKMANAGER" ]; then
+            echo "镜像里没找到 cmdline-tools，实际目录："
+            ls -la "$SDK" || true
+            exit 1
+          fi
+          echo "$SDK/cmdline-tools/latest/bin" >> "$GITHUB_PATH"
+          echo "$SDK/platform-tools" >> "$GITHUB_PATH"
+          "$SDKMANAGER" --version
+          # 镜像里 SDK 目录可能归 root，先确保当前用户可写
+          sudo chown -R "$(id -u):$(id -g)" "$SDK" 2>/dev/null || true
+          yes | "$SDKMANAGER" --sdk_root="$SDK" --licenses > /dev/null 2>&1 || true
+          "$SDKMANAGER" --sdk_root="$SDK" --install "platform-tools" "platforms;android-36" "build-tools;36.0.0"
+          echo "已安装平台："
+          ls "$SDK/platforms"
+          echo "已安装构建工具："
+          ls "$SDK/build-tools"
 
       # 仓库里默认配的是国内镜像（给中文 Windows 用的），CI 在海外，换回官方源更快
       - name: 切回官方 Gradle 源
@@ -99,6 +120,11 @@ jobs:
         run: |
           npm ci
           npx cap sync android
+
+      # local.properties 在仓库里是被忽略的（各人 SDK 路径不同），CI 里现写一份
+      - name: 指定 SDK 路径
+        working-directory: mobile/android
+        run: echo "sdk.dir=$ANDROID_HOME" > local.properties
 
       # 配了 XINGHELU_KEYSTORE_BASE64 这个 Secret 才会签署名。
       # 生成方式（本机执行）：
