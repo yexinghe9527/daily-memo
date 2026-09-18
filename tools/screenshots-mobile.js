@@ -114,16 +114,41 @@ function fillScript(today) {
 const READ_STATS = `(() => {
   const t = (id) => { const el = document.getElementById(id); return el ? el.textContent.trim() : null }
   const list = document.getElementById('taskList')
+  const box = list ? list.closest('.m-tasks') : null
+  const boxTop = box ? box.getBoundingClientRect().top : 0
   const banner = document.getElementById('carryBanner')
+  const bannerRect = banner && !banner.hidden ? banner.getBoundingClientRect() : null
+  const rows = [...(list ? list.querySelectorAll('.task-item') : [])].map((li) => {
+    const badges = [...li.querySelectorAll('.task-badges .badge')].map((b) => b.textContent)
+    const r = li.getBoundingClientRect()
+    return {
+      title: li.querySelector('.task-title') ? li.querySelector('.task-title').textContent : '',
+      carried: badges.some((b) => b.indexOf('顺延自') >= 0),
+      badges,
+      top: Math.round(r.top),
+      bottom: Math.round(r.bottom),
+      inListTop: Math.round(r.top - boxTop),
+    }
+  })
   return {
     summary: t('taskSummary'),
     ringPct: t('ringPct'),
     remaining: t('statRemaining'),
     done: t('statDone'),
     streak: t('statStreak'),
-    rows: list ? list.querySelectorAll('.task-item').length : 0,
+    rows: rows.length,
+    rowList: rows,
+    // 顺延过来的任务：必须带「顺延自」标记
+    carried: rows.filter((r) => r.carried).map((r) => ({ title: r.title, badges: r.badges, inListTop: r.inListTop, bottom: r.bottom })),
+    // 它们在滚出列表可视区之前就被真正渲染出来了（手机视口只有 ~782px，
+    // 第 6/7 张卡本来就在折叠线以下，这是手机的正常形态；桌面窗口高得多所以全都看得见）
+    carriedRenderedInList: rows.filter((r) => r.carried).every((r) => r.inListTop >= 0 && r.inListTop < box.scrollHeight),
+    listScrollTop: box ? Math.round(box.scrollTop) : null,
     bannerVisible: !!(banner && !banner.hidden),
     bannerText: banner ? banner.textContent.trim() : null,
+    bannerRect: bannerRect ? { top: Math.round(bannerRect.top), bottom: Math.round(bannerRect.bottom) } : null,
+    // 顺延横幅不能压住任何一张任务卡片
+    bannerOverlapsRows: !!(bannerRect && rows.some((r) => bannerRect.bottom > r.top + 1 && bannerRect.top < r.bottom - 1)),
   }
 })()`
 
@@ -235,6 +260,14 @@ async function main() {
   if (stats.streak !== String(expect.streak)) problems.push(`连续达成应为 ${expect.streak}，实际 ${stats.streak}`)
   if (stats.ringPct !== expect.percent) problems.push(`完成环应为 ${expect.percent}，实际 ${stats.ringPct}`)
   if (!stats.bannerVisible) problems.push('顺延横幅没有出现')
+  // 顺延确实发生：昨天没做完的两条要带「顺延自」标记，并且真的渲染在任务列表里
+  if (stats.carried.length !== 2) {
+    problems.push(`应有 2 条带「顺延自」的任务，实际 ${stats.carried.length} 条：${JSON.stringify(stats.carried.map((c) => c.title))}`)
+  } else if (!stats.carriedRenderedInList) {
+    problems.push(`「顺延自」的两条没有正常渲染在任务列表里：${JSON.stringify(stats.carried)}`)
+  }
+  if (stats.listScrollTop !== 0) problems.push(`任务列表不在顶部（应停在滚动位置 0）：${stats.listScrollTop}`)
+  if (stats.bannerOverlapsRows) problems.push(`顺延横幅压住了任务卡片：${JSON.stringify(stats.bannerRect)}`)
   if (problems.length) throw new Error('手机端与桌面端不一致：\n  - ' + problems.join('\n  - '))
 
   fs.mkdirSync(outDir, { recursive: true })
@@ -266,6 +299,9 @@ async function main() {
   }
 
   const tasks = await captureStable('mobile-tasks.png')
+  if (tasks.size.width < 300 || tasks.size.height < 600) {
+    throw new Error(`mobile-tasks.png 尺寸不像竖屏手机：${tasks.size.width}x${tasks.size.height}`)
+  }
   console.log(`✓ mobile-tasks.png  ${tasks.size.width}x${tasks.size.height}  ${(tasks.bytes / 1024).toFixed(0)} KB`)
 
   const sync = await js(OPEN_SYNC)
@@ -277,6 +313,9 @@ async function main() {
   if (sync.carryChecked !== true) throw new Error('「未完成自动顺延到今天」应当是勾选状态')
 
   const syncShot = await captureStable('mobile-sync.png')
+  if (syncShot.size.width < 300 || syncShot.size.height < 600) {
+    throw new Error(`mobile-sync.png 尺寸不像竖屏手机：${syncShot.size.width}x${syncShot.size.height}`)
+  }
   console.log(`✓ mobile-sync.png   ${syncShot.size.width}x${syncShot.size.height}  ${(syncShot.bytes / 1024).toFixed(0)} KB`)
 
   await sleep(150)
