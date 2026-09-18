@@ -780,7 +780,7 @@
       {
         idle: '尚未检查',
         unconfigured: '尚未配置更新源',
-        checking: '正在检查…',
+        checking: s.attempt > 1 ? `正在检查…（第 ${s.attempt}/${s.attempts} 次，网络不太顺）` : '正在检查…',
         downloading: `正在下载新版本 v${s.version || ''}（${s.percent || 0}%）`,
         ready: `新版本 v${s.version} 已下载，重启后生效`,
         latest: '已是最新版本',

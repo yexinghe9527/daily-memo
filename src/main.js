@@ -301,6 +301,17 @@ function updateSourceInfo() {
 /** 把 electron-updater 那一大坨原始报错压成一句人能看懂的话 */
 function friendlyUpdateError(err) {
   const raw = (err && err.message) || String(err || '')
+  // electron-updater 会把底层网络错误包进这两句里，直接匹配底层关键字（ETIMEDOUT 等）
+  // 常常匹配不到 —— 用户看到的就会是一整段英文原始报错。所以先认这两种包装。
+  if (/Unable to find latest version on GitHub/i.test(raw)) {
+    if (/\b404\b/.test(raw)) {
+      return '更新源返回 404 —— 仓库或 Release 还不存在（检查 publish.owner / repo，以及是否已发布过 Release）'
+    }
+    return '连不上 GitHub 的发布页（本机到 github.com 的连接时好时坏），重试后仍失败；稍后会自动再试'
+  }
+  if (/Cannot parse releases feed/i.test(raw)) {
+    return '拿不到 GitHub 的发布信息（到 github.com 的连接不稳定），稍后会自动再试'
+  }
   if (/\b404\b/.test(raw)) {
     return '更新源返回 404 —— 仓库或 Release 还不存在（检查 publish.owner / repo，以及是否已发布过 Release）'
   }
@@ -380,25 +391,45 @@ function setupUpdater() {
   setInterval(() => checkUpdates(false), 6 * 3600 * 1000)
 }
 
+/**
+ * GitHub 在部分网络下时通时坏：同一个请求可能 20 秒超时，也可能 100 毫秒就返回。
+ * electron-updater 对纯 github.com 是直接请求网页地址（不走 api.github.com），
+ * 所以单次失败往往只是撞上了坏的那一下 —— 退避重试几次远比直接报错有用。
+ */
+const UPDATE_ATTEMPTS_MANUAL = 3
+const UPDATE_ATTEMPTS_AUTO = 2
+
+const sleepMs = (ms) => new Promise((res) => setTimeout(res, ms))
+
 async function checkUpdates(manual) {
   if (!app.isPackaged) return { ok: false, reason: 'dev' }
   if (!updateSourceInfo().configured) {
-    updateState = { ...updateState, state: 'unconfigured', error: null }
+    updateState = { ...updateState, state: 'unconfigured', error: null, attempt: 0, attempts: 0 }
     pushUpdateState()
     return { ok: false, reason: 'unconfigured' }
   }
   if (!manual && store && !store.data.settings.autoCheckUpdate) return { ok: false, reason: 'disabled' }
-  try {
-    updateState = { ...updateState, state: 'checking', error: null }
-    pushUpdateState()
-    await autoUpdater.checkForUpdates()
-    return { ok: true }
-  } catch (err) {
-    const reason = friendlyUpdateError(err)
-    updateState = { ...updateState, state: 'error', error: reason, checkedAt: Date.now() }
-    pushUpdateState()
-    return { ok: false, reason }
+
+  const attempts = manual ? UPDATE_ATTEMPTS_MANUAL : UPDATE_ATTEMPTS_AUTO
+  let lastErr = null
+
+  for (let attempt = 1; attempt <= attempts; attempt++) {
+    try {
+      updateState = { ...updateState, state: 'checking', error: null, attempt, attempts }
+      pushUpdateState()
+      await autoUpdater.checkForUpdates()
+      updateState = { ...updateState, attempt: 0, attempts: 0 }
+      return { ok: true }
+    } catch (err) {
+      lastErr = err
+      if (attempt < attempts) await sleepMs(1500 * attempt) // 1.5s、3s 退避
+    }
   }
+
+  const reason = friendlyUpdateError(lastErr)
+  updateState = { ...updateState, state: 'error', error: reason, checkedAt: Date.now(), attempt: 0, attempts: 0 }
+  pushUpdateState()
+  return { ok: false, reason }
 }
 
 function installUpdate() {

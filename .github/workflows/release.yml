@@ -186,6 +186,25 @@ jobs:
         with:
           path: artifacts
 
+      # action-gh-release 只会上传新文件，不会删旧的。重发同一个 tag 时，
+      # 上一轮的产物（比如改名前的 app-release-unsigned.apk）会留在 Release 里，
+      # 下载的人可能正好点到那个坏包。所以先清空该 Release 的资产再上传。
+      - name: 清掉该 Release 上的旧资产
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            gh release view "$GITHUB_REF_NAME" --json assets --jq '.assets[].name' | while read -r name; do
+              if [ -n "$name" ]; then
+                echo "删除旧资产：$name"
+                gh release delete-asset "$GITHUB_REF_NAME" "$name" -y
+              fi
+            done
+          else
+            echo "该 tag 还没有 Release，跳过清理"
+          fi
+
       - uses: softprops/action-gh-release@v2
         with:
           # latest.yml 和 blockmap 必须在 Release 里，客户端自动更新才能发现并增量下载
