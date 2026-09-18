@@ -126,6 +126,39 @@ jobs:
         working-directory: mobile/android
         run: echo "sdk.dir=$ANDROID_HOME" > local.properties
 
+      # 自检签名配置：只输出长度、文件大小、证书指纹这类信息，绝不打印密钥内容。
+      # 加这一步是因为安卓构建若挂在 gradle 里，失败原因只在日志中，而日志需要管理员
+      # 权限才能看。有了它，从公开的注解里就能看出到底是「没配」「base64 复制坏了」
+      # 还是「密码/别名不对」。
+      - name: 签名配置自检
+        env:
+          KEYSTORE_B64: ${{ secrets.XINGHELU_KEYSTORE_BASE64 }}
+          STORE_PW: ${{ secrets.XINGHELU_STORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.XINGHELU_KEY_ALIAS }}
+          KEY_PW: ${{ secrets.XINGHELU_KEY_PASSWORD }}
+        run: |
+          echo "XINGHELU_KEYSTORE_BASE64 长度 = ${#KEYSTORE_B64}"
+          echo "XINGHELU_STORE_PASSWORD  长度 = ${#STORE_PW}"
+          echo "XINGHELU_KEY_ALIAS            = ${KEY_ALIAS:-（空）}"
+          echo "XINGHELU_KEY_PASSWORD    长度 = ${#KEY_PW}"
+          if [ -z "$KEYSTORE_B64" ]; then
+            echo "=> 没配 keystore，本次会产出未签名包（安卓装不上）"
+            exit 0
+          fi
+          if ! printf '%s' "$KEYSTORE_B64" | tr -d '\n\r ' | base64 -d > /tmp/probe.keystore 2>/dev/null; then
+            echo "::error::KEYSTORE_BASE64 不是合法的 base64；多半是复制时混进了别的内容（引号、说明文字或截断）"
+            exit 1
+          fi
+          echo "解码后 $(stat -c%s /tmp/probe.keystore) 字节，类型 $(file -b /tmp/probe.keystore)"
+          echo "--- keytool 校验（同时验证密码，只输出证书指纹）---"
+          if ! keytool -list -keystore /tmp/probe.keystore -storepass "$STORE_PW" 2>&1 | head -12; then
+            echo "::error::STORE_PASSWORD 不正确，或 keystore 本体损坏"
+          fi
+          echo "--- 按别名取条目 ---"
+          if ! keytool -list -keystore /tmp/probe.keystore -storepass "$STORE_PW" -alias "$KEY_ALIAS" 2>&1 | head -8; then
+            echo "::error::KEY_ALIAS「${KEY_ALIAS}」在 keystore 里不存在"
+          fi
+
       # 配了 XINGHELU_KEYSTORE_BASE64 这个 Secret 才会签署名。
       # 生成方式（本机执行）：
       #   base64 -w0 xinghelu-release.keystore   （Windows: certutil -encode 后去掉头尾）
@@ -138,15 +171,20 @@ jobs:
           KEY_ALIAS: ${{ secrets.XINGHELU_KEY_ALIAS }}
           KEY_PW: ${{ secrets.XINGHELU_KEY_PASSWORD }}
         run: |
+          set -euo pipefail
           if [ -n "$KEYSTORE_B64" ]; then
             # storeFile 在 app/build.gradle 里是相对 mobile/android/app/ 解析的，
             # 用绝对路径才能保证不踩相对路径的坑
             KS="$PWD/../release.keystore"
-            echo "$KEYSTORE_B64" | base64 -d > "$KS"
-            test -s "$KS" || { echo "密钥文件写入失败或为空"; exit 1; }
+            # 先去掉粘贴时可能混进来的换行和空格再解码 —— 这是最常见的翻车点
+            if ! printf '%s' "$KEYSTORE_B64" | tr -d '\n\r ' | base64 -d > "$KS" 2>/dev/null; then
+              echo "::error::KEYSTORE_BASE64 解码失败，请重新复制为一整行"
+              exit 1
+            fi
+            test -s "$KS" || { echo "::error::密钥文件写入后为空"; exit 1; }
             printf 'storeFile=%s\nstorePassword=%s\nkeyAlias=%s\nkeyPassword=%s\n' \
               "$KS" "$STORE_PW" "$KEY_ALIAS" "$KEY_PW" > keystore.properties
-            echo "已注入签名配置，keystore: $(ls -l "$KS")"
+            echo "已注入签名配置，keystore $(stat -c%s "$KS") 字节"
           else
             echo "未配置签名 Secrets，本次将产出未签名包"
           fi
