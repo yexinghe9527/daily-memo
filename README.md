@@ -140,6 +140,22 @@ cd android
 客户端启动 12 秒后检查一次更新，发现新版就后台下载，完成后通知你重启生效；
 托盘右键菜单和设置里都能手动检查。
 
+### 让 CI 打出已签名的安卓包
+
+仓库 `Settings → Secrets and variables → Actions` 里加下面 4 个 Secret，CI 就会自动签名：
+
+| Secret | 值 |
+| --- | --- |
+| `XINGHELU_KEYSTORE_BASE64` | keystore 的单行 base64：`base64 -w0 your-release.keystore` |
+| `XINGHELU_STORE_PASSWORD` | keystore 密码 |
+| `XINGHELU_KEY_ALIAS` | 密钥别名 |
+| `XINGHELU_KEY_PASSWORD` | 密钥密码 |
+
+不配也不会让 CI 失败，只是产出 `Xinghelu-Android-x.y.z-unsigned.apk`。
+但**未签名的 APK 在安卓上根本装不上**，所以对外发版一定要配。
+
+> keystore 请自己另存一份备份：丢了就再也无法给同一个应用做覆盖升级。
+
 > ⚠️ 上线前必改两处，否则更新会 404：
 > - `electron-builder.yml` 里 `publish.owner` / `publish.repo` 换成你自己的账号和仓库
 > - **`artifactName` 必须保持 ASCII**。electron-builder 会对非 ASCII 产物名做「安全化」，

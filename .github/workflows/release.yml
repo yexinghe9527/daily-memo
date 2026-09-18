@@ -139,10 +139,14 @@ jobs:
           KEY_PW: ${{ secrets.XINGHELU_KEY_PASSWORD }}
         run: |
           if [ -n "$KEYSTORE_B64" ]; then
-            echo "$KEYSTORE_B64" | base64 -d > ../release.keystore
-            printf 'storeFile=../release.keystore\nstorePassword=%s\nkeyAlias=%s\nkeyPassword=%s\n' \
-              "$STORE_PW" "$KEY_ALIAS" "$KEY_PW" > keystore.properties
-            echo "已注入签名配置"
+            # storeFile 在 app/build.gradle 里是相对 mobile/android/app/ 解析的，
+            # 用绝对路径才能保证不踩相对路径的坑
+            KS="$PWD/../release.keystore"
+            echo "$KEYSTORE_B64" | base64 -d > "$KS"
+            test -s "$KS" || { echo "密钥文件写入失败或为空"; exit 1; }
+            printf 'storeFile=%s\nstorePassword=%s\nkeyAlias=%s\nkeyPassword=%s\n' \
+              "$KS" "$STORE_PW" "$KEY_ALIAS" "$KEY_PW" > keystore.properties
+            echo "已注入签名配置，keystore: $(ls -l "$KS")"
           else
             echo "未配置签名 Secrets，本次将产出未签名包"
           fi
@@ -152,6 +156,19 @@ jobs:
         run: |
           chmod +x gradlew
           ./gradlew assembleRelease --no-daemon
+
+      # 让下载的人一眼看出这是哪个版本、有没有签名
+      - name: 整理 APK 文件名
+        working-directory: mobile/android/app/build/outputs/apk/release
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          for f in *.apk; do
+            case "$f" in
+              *unsigned*) mv "$f" "Xinghelu-Android-${VERSION}-unsigned.apk" ;;
+              *)          mv "$f" "Xinghelu-Android-${VERSION}.apk" ;;
+            esac
+          done
+          ls -l
 
       - uses: actions/upload-artifact@v4
         with:
