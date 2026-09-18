@@ -42,10 +42,6 @@
 | 主题 | 跟随系统 / 浅色 / 深色 / **星辰大海**（星空 + 流星） |
 | 数据自主 | 一键导出/导入 JSON，数据就是一个普通文件 |
 
-## 界面
-
-*（建议放 4 张截图：桌面浅色、桌面星辰大海、手机任务列表、手机同步设置）*
-
 ## 下载
 
 从 [**Releases**](https://github.com/yexinghe9527/daily-memo/releases/latest) 下载最新版本：
@@ -53,7 +49,7 @@
 | 平台 | 文件 | 说明 |
 | --- | --- | --- |
 | Windows | `Xinghelu-Setup-x.y.z.exe` | 免管理员权限安装，自动建快捷方式；未签名，首次运行需点「更多信息 → 仍要运行」 |
-| Android | 仓库 Release 里的 `.apk` | 首次安装需允许「未知来源」 |
+| Android | `Xinghelu-Android-x.y.z.apk` | 首次安装需允许「未知来源」 |
 
 > 也可以从源码自行构建，见下文。
 
@@ -156,10 +152,8 @@ cd android
 
 > keystore 请自己另存一份备份：丢了就再也无法给同一个应用做覆盖升级。
 
-> ⚠️ 上线前必改两处，否则更新会 404：
-> - `electron-builder.yml` 里 `publish.owner` / `publish.repo` 换成你自己的账号和仓库
-> - **`artifactName` 必须保持 ASCII**。electron-builder 会对非 ASCII 产物名做「安全化」，
->   使得 `latest.yml` 里写的文件名和实际文件对不上（这个坑踩过，改成中文名就会坏）
+一个容易踩的点：`electron-builder.yml` 里的 `artifactName` 必须保持 ASCII。electron-builder 会对
+非 ASCII 产物名做「安全化」，使 `latest.yml` 里写的文件名和实际文件对不上，客户端检查更新就会 404。
 
 ## 架构
 
@@ -212,8 +206,8 @@ node tools/test-sync.js             # 同步服务端到端（真发 HTTP）
 
 ## 路线图
 
+- [x] 自动更新（electron-builder publish + GitHub Releases）
 - [ ] 英文界面（i18n）与英文文档
-- [ ] 自动更新（electron-builder publish）
 - [ ] 首次使用引导与示例数据
 - [ ] 同步认证（目前局域网同步无密码，仅适合可信网络）
 - [ ] 跨网络同步开箱可用（内嵌 Tailscale 指引 / 自建服务）
@@ -222,13 +216,6 @@ node tools/test-sync.js             # 同步服务端到端（真发 HTTP）
 ## 贡献
 
 欢迎 issue 和 PR，详见 [`CONTRIBUTING.md`](CONTRIBUTING.md)。提交前请跑一遍上面的测试。
-
-## 赞助
-
-如果这个项目对你有用，欢迎请作者喝杯咖啡。
-
-> 赞助渠道还没配好：把 `.github/FUNDING.yml` 里的注释取消并填上你的爱发电 / Ko-fi 主页即可。
-> 注：GitHub Sponsors 目前**不支持中国大陆收款**，所以主力放在国内可用的渠道。
 
 ## 许可
 
