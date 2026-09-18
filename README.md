@@ -42,6 +42,26 @@
 | 主题 | 跟随系统 / 浅色 / 深色 / **星辰大海**（星空 + 流星） |
 | 数据自主 | 一键导出/导入 JSON，数据就是一个普通文件 |
 
+## 界面
+
+桌面端 · 浅色主题
+
+![桌面端 · 浅色主题](docs/screenshots/desktop-light.png)
+
+桌面端 · 星辰大海主题（星空 + 流星）
+
+![桌面端 · 星辰大海主题](docs/screenshots/desktop-galaxy.png)
+
+手机端
+
+<p>
+  <img src="docs/screenshots/mobile-tasks.png" width="250" alt="手机端 · 任务列表">
+  <img src="docs/screenshots/mobile-sync.png" width="250" alt="手机端 · 同步设置">
+</p>
+
+> 截图里的内容全部是虚构的演示数据，由 `tools/make-demo-data.js` 生成，
+> 不含任何真实用户信息。重生成：`npm run shots`（桌面端）、`npm run shots:mobile`（手机端）。
+
 ## 下载
 
 从 [**Releases**](https://github.com/yexinghe9527/daily-memo/releases/latest) 下载最新版本：
@@ -177,6 +197,10 @@ mobile/                    安卓端（Capacitor）
 tools/
 ├─ make-icon.js            手写 PNG 编码生成图标（零图形依赖）
 ├─ make-android-icons.js   生成各密度启动器图标 + 自适应前景
+├─ demo-dataset.js         README 截图用的虚构演示数据（两端共用同一份）
+├─ make-demo-data.js       把演示数据灌进真实 Store，生成 data.json
+├─ screenshots-desktop.js  生成桌面端 README 截图
+├─ screenshots-mobile.js   生成手机端 README 截图
 ├─ net-probe.js            下载源连通性探针
 └─ test-sync.js            同步服务端到端测试
 ```
@@ -216,6 +240,13 @@ node tools/test-sync.js             # 同步服务端到端（真发 HTTP）
 ## 贡献
 
 欢迎 issue 和 PR，详见 [`CONTRIBUTING.md`](CONTRIBUTING.md)。提交前请跑一遍上面的测试。
+
+## 赞助
+
+星河录不收费、无广告、不要账号，所有功能都能直接用。如果它确实帮你省下了时间，
+可以扫码请作者喝杯咖啡——**完全自愿，不影响任何功能**。
+
+<img src="docs/sponsor-wechat.jpg" alt="微信收款码" width="200">
 
 ## 许可
 

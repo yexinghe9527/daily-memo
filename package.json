@@ -11,6 +11,9 @@
     "selftest": "node src/selftest.js",
     "icon": "node tools/make-icon.js",
     "ico": "node tools/make-ico.js",
+    "demo-data": "node tools/make-demo-data.js",
+    "shots": "electron tools/screenshots-desktop.js",
+    "shots:mobile": "electron tools/screenshots-mobile.js",
     "dist": "electron-builder --win --x64 --publish never"
   },
   "license": "MIT",
