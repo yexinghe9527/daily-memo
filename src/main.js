@@ -982,6 +982,69 @@ async function runSmoke() {
     return `优先级=${r.priorityTexts} · 提醒=${r.remindType} · 新建带类型=${r.createdTypeBadge} · 首点后剩 ${r.rowsAfterFirstClick} 行(${r.confirmLabel}) · 二次点击后 ${r.rowsAfter} 行`
   })
 
+  await check('重复任务删除：给出两个选项，选「今天及以后」整组消失', async () => {
+    const TITLE = '重复任务冒烟'
+    const r = await win.webContents.executeJavaScript(`(async () => {
+      const sleep = (ms) => new Promise((res) => setTimeout(res, ms))
+      const out = {}
+      document.getElementById('newTitle').value = ${JSON.stringify(TITLE)}
+      const rep = document.getElementById('newRepeat')
+      if (rep) rep.value = 'daily'
+      document.getElementById('addBtn').click()
+      await sleep(600)
+
+      const li = [...document.querySelectorAll('.task-item')].find(
+        (n) => n.querySelector('.task-title') && n.querySelector('.task-title').textContent === ${JSON.stringify(TITLE)}
+      )
+      if (!li) { out.error = '没找到刚建的每日重复任务'; return out }
+      out.taskId = li.dataset.id
+
+      const btns = li.querySelectorAll('.task-actions .icon-btn')
+      btns[1].click() // 点 ✕
+      await sleep(220)
+
+      const choice = li.querySelector('.task-actions .del-choice')
+      out.choiceShown = !!choice && !choice.hidden
+      out.labels = choice ? [...choice.querySelectorAll('button')].map((b) => b.textContent) : []
+      out.stillThere = !!document.querySelector('.task-item[data-id="' + out.taskId + '"]')
+      // 选项按钮既不许被截断，也不许被压成竖排
+      out.boxes = choice
+        ? [...choice.querySelectorAll('button')].map((b) => {
+            const q = b.getBoundingClientRect()
+            return { t: b.textContent, w: Math.round(q.width), h: Math.round(q.height), sw: b.scrollWidth, cw: b.clientWidth }
+          })
+        : []
+
+      const series = choice ? [...choice.querySelectorAll('button')].find((b) => b.textContent.indexOf('以后') >= 0) : null
+      if (series) series.click()
+      await sleep(800)
+      out.goneFromView = !document.querySelector('.task-item[data-id="' + out.taskId + '"]')
+      return out
+    })()`)
+
+    if (r.error) throw new Error(r.error)
+    if (!r.choiceShown) throw new Error('重复任务点 ✕ 后没有出现删除选项，仍在按「只删今天」处理')
+    if (r.labels.length !== 2) throw new Error(`删除选项应为 2 个，实际 ${r.labels.length}：${JSON.stringify(r.labels)}`)
+    if (!r.stillThere) throw new Error('还没选择就把任务删掉了')
+    for (const b of r.boxes) {
+      if (b.sw > b.cw + 1) throw new Error(`选项「${b.t}」文字被截断（scrollWidth ${b.sw} > clientWidth ${b.cw}）`)
+      if (b.w <= b.h) throw new Error(`选项「${b.t}」被压成竖排（${b.w}x${b.h}）`)
+    }
+    if (!r.goneFromView) throw new Error('选「今天及以后」后该任务没有从列表消失')
+
+    // 真正的要害：删完之后，以后每一天都不能再冒出来
+    const today = todayKey()
+    const left = store.data.tasks.filter((t) => t.title === TITLE && t.date >= today).length
+    if (left !== 0) throw new Error(`整组删除后仍残留 ${left} 条该重复任务`)
+    const groupsLeft = Object.values(store.data.repeatGroups).filter((g) => g.title === TITLE).length
+    if (groupsLeft !== 0) throw new Error('重复组没有被清掉，第二天还会再生成')
+    store.materialize(storeMod.shiftKey(today, 1))
+    const regenerated = store.listByDate(storeMod.shiftKey(today, 1)).filter((t) => t.title === TITLE).length
+    if (regenerated !== 0) throw new Error(`删除后第二天又生成了 ${regenerated} 条`)
+
+    return `选项=${r.labels.join(' / ')} · 未选前仍在 · 选后从列表消失 · 次日重新生成 ${regenerated} 条 · 重复组已清除`
+  })
+
   await check('自动更新链路可用', async () => {
     const r = await win.webContents.executeJavaScript('window.memoApi.updateStatus()')
     if (!r || typeof r.current !== 'string') throw new Error('updateStatus 返回异常：' + JSON.stringify(r))

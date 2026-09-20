@@ -1118,6 +1118,22 @@ button:disabled {
   color: #fff;
 }
 
+/* 重复任务的删除选择：两个选项都必须真的变宽，否则会被 .icon-btn 的 27px 宽度
+   压住、文字折成竖排溢出卡片（和上面确认态是同一个坑）。 */
+.task-actions .del-choice {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.task-actions .del-choice .icon-btn {
+  width: auto;
+  flex: 0 0 auto;
+  padding: 0 9px;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
 .drag-handle {
   cursor: grab;
   color: var(--text-faint);

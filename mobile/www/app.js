@@ -358,15 +358,55 @@
     delBtn.title = '删除'
     let confirming = false
     let confirmTimer = null
+    const clearTimer = () => {
+      if (confirmTimer) clearTimeout(confirmTimer)
+      confirmTimer = null
+    }
     const resetConfirm = () => {
       confirming = false
       delBtn.classList.remove('is-confirming')
       delBtn.textContent = '✕'
       delBtn.title = '删除'
-      if (confirmTimer) clearTimeout(confirmTimer)
+      clearTimer()
     }
+
+    // 重复任务：删「这一次」和删「整个重复」是两件完全不同的事，必须让用户选。
+    // 以前一律只删当天，结果第二天它又生成出来，看起来就像根本没删掉。
+    const choice = el('div', 'del-choice')
+    choice.hidden = true
+    const hideChoice = () => {
+      choice.hidden = true
+      delBtn.hidden = false
+      clearTimer()
+    }
+    const doDelete = guard(async (scope) => {
+      const r = await api.deleteTask(task.id, scope)
+      if (!r || !r.ok) return
+      resetConfirm()
+      hideChoice()
+      // 整组删除会牵动多天，直接按服务端结果重画一遍，不在本地另行推算
+      await reloadDate()
+      toast(scope === 'future' ? '已删除今天及以后' : '已删除', 'ok')
+    })
+    const onceBtn = el('button', 'icon-btn', '只删今天')
+    onceBtn.title = '只跳过这一天，以后照常重复'
+    onceBtn.addEventListener('click', () => doDelete('one'))
+    const seriesBtn = el('button', 'icon-btn danger', '今天及以后')
+    seriesBtn.title = '删掉今天和以后所有未完成的，并结束这个重复'
+    seriesBtn.addEventListener('click', () => doDelete('future'))
+    choice.appendChild(onceBtn)
+    choice.appendChild(seriesBtn)
+
     delBtn.addEventListener('click', guard(async () => {
-      // 两步确认：第一次点击只是进入待确认状态，避免和「编辑」相邻被误点删掉
+      if (task.groupId) {
+        // 重复任务：一次点击就摆出两个明确选项，5 秒不选自动收起
+        delBtn.hidden = true
+        choice.hidden = false
+        clearTimer()
+        confirmTimer = setTimeout(hideChoice, 5000)
+        return
+      }
+      // 非重复任务：两步确认，第一次点击只进入待确认状态，避免和「编辑」相邻被误点删掉
       if (!confirming) {
         confirming = true
         delBtn.classList.add('is-confirming')
@@ -375,16 +415,10 @@
         confirmTimer = setTimeout(resetConfirm, 3000)
         return
       }
-      resetConfirm()
-      const r = await api.deleteTask(task.id, 'one')
-      if (!r || !r.ok) return
-      state.tasks = state.tasks.filter((x) => x.id !== task.id)
-      await refreshStats()
-      renderAll()
-      await refreshCalendar()
-      toast('已删除', 'ok')
+      doDelete('one')
     }))
     actions.appendChild(delBtn)
+    actions.appendChild(choice)
     li.appendChild(actions)
 
     attachDrag(li, task)

@@ -1,7 +1,7 @@
 {
   "name": "daily-memo",
   "productName": "星河录",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "private": true,
   "description": "星河录 — 桌面端每日任务与备忘管理",
   "main": "src/main.js",

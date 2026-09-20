@@ -127,6 +127,53 @@ async function main() {
     await window.memoApi.deleteTask(out.addedId, 'one')
     out.afterDelete = (await window.memoApi.loadDate({ date: boot.today })).tasks.length
 
+    // 重复任务的删除：必须走真实界面路径建任务（直接调 memoApi 不会触发界面重绘，
+    // DOM 里就找不到那一条），然后在真实按钮上点 ✕，验两个选项的排版。
+    const REP_TITLE = '重复冒烟任务'
+    $('openComposer').click()
+    await sleep(380)
+    $('newTitle').value = REP_TITLE
+    $('newRepeat').value = 'daily'
+    $('addBtn').click()
+    await sleep(750)
+    const repLi = [...document.querySelectorAll('.task-item')].find(
+      (n) => n.querySelector('.task-title') && n.querySelector('.task-title').textContent === REP_TITLE
+    )
+    out.repTitle = REP_TITLE
+    if (!repLi) {
+      out.repMissing = true
+      out.repRows = [...document.querySelectorAll('.task-item .task-title')].map((n) => n.textContent)
+    } else {
+      out.repId = repLi.dataset.id
+      const repBtns = repLi.querySelectorAll('.task-actions .icon-btn')
+      repBtns[1].click() // 点 ✕
+      await sleep(240)
+      const choice = repLi.querySelector('.task-actions .del-choice')
+      out.delChoiceShown = !!choice && !choice.hidden
+      out.delChoiceLabels = choice ? [...choice.querySelectorAll('button')].map((b) => b.textContent) : []
+      out.delChoiceBoxes = choice
+        ? [...choice.querySelectorAll('button')].map((b) => {
+            const q = b.getBoundingClientRect()
+            return {
+              t: b.textContent,
+              w: Math.round(q.width),
+              h: Math.round(q.height),
+              truncated: b.scrollWidth > b.clientWidth + 1,
+            }
+          })
+        : []
+      out.repRowOverflow = repLi.scrollWidth > repLi.clientWidth + 1
+      const series = choice
+        ? [...choice.querySelectorAll('button')].find((b) => b.textContent.indexOf('以后') >= 0)
+        : null
+      if (series) series.click()
+      await sleep(700)
+      out.repGone = !document.querySelector('.task-item[data-id="' + out.repId + '"]')
+      out.repLeftAfter = [...document.querySelectorAll('.task-item .task-title')].filter(
+        (n) => n.textContent === REP_TITLE
+      ).length
+    }
+
     // 设置必须真的落库：曾经 syncServer 不在白名单里，界面填了地址却存不下来
     await window.memoApi.saveSettings({ syncServer: '192.168.1.9:8765', syncPort: 9001 })
     const st = await window.memoApi.syncStatus()
@@ -174,6 +221,26 @@ async function main() {
   assert('新增任务', !!result.addedId && result.taskCount >= 1, `任务数=${result.taskCount}`)
   assert('勾选完成', result.doneAfterToggle === true && result.todayDone >= 1, 'done=true')
   assert('删除任务', result.afterDelete === 0, `剩余=${result.afterDelete}`)
+  assert(
+    '重复任务删除给出两个选项',
+    !result.repMissing && result.delChoiceShown === true && (result.delChoiceLabels || []).length === 2,
+    result.repMissing
+      ? `列表里没找到「${result.repTitle}」，实际有：${JSON.stringify(result.repRows)}`
+      : `选项=${JSON.stringify(result.delChoiceLabels)}`
+  )
+  assert(
+    '删除选项未被压扁或截断',
+    (result.delChoiceBoxes || []).length === 2 &&
+      result.delChoiceBoxes.every((b) => b.w > b.h && b.truncated === false) &&
+      result.repRowOverflow === false,
+    (result.delChoiceBoxes || []).map((b) => `${b.t} ${b.w}×${b.h}${b.truncated ? ' 已截断' : ''}`).join(' · ') +
+      ` 整行溢出=${result.repRowOverflow}`
+  )
+  assert(
+    '重复任务整组删掉',
+    result.repGone === true && result.repLeftAfter === 0,
+    `从列表消失=${result.repGone} 剩余=${result.repLeftAfter}`
+  )
   assert('设置能真正落库', result.savedSyncServer === '192.168.1.9:8765', `syncServer=${result.savedSyncServer}`)
   assert('无 console 报错', errors.length === 0, errors.slice(0, 5).join(' | '))
 

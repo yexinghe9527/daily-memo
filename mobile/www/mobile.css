@@ -310,6 +310,23 @@ body.mobile .task-actions .icon-btn.is-confirming {
   white-space: nowrap;
 }
 
+/* 重复任务的删除选择：同样要能变宽、不许折行。
+   手机上操作区很窄，两个选项排在标题右侧，字体和留白都收紧一档。 */
+body.mobile .task-actions .del-choice {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+body.mobile .task-actions .del-choice .icon-btn {
+  width: auto;
+  flex: 0 0 auto;
+  height: 34px;
+  padding: 0 8px;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
 /* 内联编辑器：字段纵向堆叠，全宽 */
 body.mobile .task-editor {
   padding: 12px;
