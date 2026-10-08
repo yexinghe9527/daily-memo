@@ -25,3 +25,4 @@ mobile/android/local.properties
 .sync-*.txt
 .tray*.txt
 mobile/gradle.log
+.tmp/

@@ -1428,6 +1428,29 @@ button:disabled {
   cursor: pointer;
 }
 
+/* 私人任务密码弹窗：比设置窗窄，输入框占满右侧 */
+.pwd-card {
+  width: min(360px, calc(100vw - 48px));
+}
+
+.modal-body .row input[type='password'] {
+  flex: 1;
+  min-width: 0;
+  padding: 5px 8px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-2);
+  color: var(--text);
+  outline: none;
+}
+
+/* 设置里一行放两个按钮（私人任务密码：修改 / 移除） */
+.row-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
 .hint {
   margin-top: 10px;
   padding: 9px 11px;

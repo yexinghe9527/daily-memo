@@ -125,6 +125,7 @@
           <header class="region-head">
             <span id="taskSummary">—</span>
             <div class="region-actions">
+              <button id="privateLockBtn" class="ghost-btn" title="立刻重新锁定私人任务" hidden>锁定</button>
               <button id="clearDoneBtn" class="ghost-btn" title="删除当天所有已完成任务">清除已完成</button>
               <select id="sortMode" title="排序方式">
                 <option value="manual">手动顺序</option>
@@ -210,12 +211,49 @@
           </div>
           <div class="hint" id="updateStatusText">—</div>
           <label class="row" data-desktop-only>
+            <span>私人任务密码</span>
+            <span class="row-actions">
+              <button id="privatePwdBtn" class="ghost-btn">设置</button>
+              <button id="privateRemoveBtn" class="ghost-btn" hidden>移除</button>
+            </span>
+          </label>
+          <div class="hint" id="privateHint">—</div>
+          <label class="row" data-desktop-only>
             <span>开启手机同步服务</span>
             <input id="setSyncServer" type="checkbox" />
           </label>
           <div class="hint" id="syncUrlText">—</div>
           <div class="hint" id="dataPathText">—</div>
           <div class="hint">快捷键：Ctrl+N 聚焦输入框 · Ctrl+F 搜索 · Alt+←/→ 切换日期 · Ctrl+S 立即保存备忘</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ───────────── 私人任务密码（设置 / 修改 / 解锁 共用这一个弹窗）───────────── -->
+    <div class="modal" id="pwdModal" hidden>
+      <div class="modal-card pwd-card">
+        <header class="modal-head">
+          <b id="pwdTitle">输入密码</b>
+          <button id="pwdClose" class="icon-btn">✕</button>
+        </header>
+        <div class="modal-body">
+          <label class="row" id="pwdCurrentRow" hidden>
+            <span>当前密码</span>
+            <input id="pwdCurrent" type="password" inputmode="numeric" maxlength="4" autocomplete="off" />
+          </label>
+          <label class="row" id="pwdNewRow">
+            <span id="pwdNewLabel">密码</span>
+            <input id="pwdNew" type="password" inputmode="numeric" maxlength="4" autocomplete="off" />
+          </label>
+          <label class="row" id="pwdConfirmRow">
+            <span>再输一次</span>
+            <input id="pwdConfirm" type="password" inputmode="numeric" maxlength="4" autocomplete="off" />
+          </label>
+          <div class="hint" id="pwdError"></div>
+          <div class="modal-actions">
+            <button id="pwdCancel" class="ghost-btn">取消</button>
+            <button id="pwdOk" class="primary-btn">确定</button>
+          </div>
         </div>
       </div>
     </div>

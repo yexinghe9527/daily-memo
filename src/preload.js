@@ -29,6 +29,11 @@ contextBridge.exposeInMainWorld('memoApi', {
   reorder: (payload) => ipcRenderer.invoke('task:reorder', payload || {}),
   setMemo: (payload) => ipcRenderer.invoke('memo:set', payload || {}),
   saveSettings: (patch) => ipcRenderer.invoke('settings:update', patch || {}),
+  privateStatus: () => ipcRenderer.invoke('private:status'),
+  privateUnlock: (password) => ipcRenderer.invoke('private:unlock', { password: String(password || '') }),
+  privateLock: () => ipcRenderer.invoke('private:lock'),
+  privateSet: (payload) => ipcRenderer.invoke('private:set', payload || {}),
+  privateRemove: (current) => ipcRenderer.invoke('private:remove', { current: String(current || '') }),
   getStats: (date) => ipcRenderer.invoke('stats:get', { date }),
   syncInfo: () => ipcRenderer.invoke('sync:info'),
   syncRestart: () => ipcRenderer.invoke('sync:restart'),
@@ -48,5 +53,6 @@ contextBridge.exposeInMainWorld('memoApi', {
   onFocusNewTask: (cb) => subscribe('focus:new-task', cb),
   onDataChanged: (cb) => subscribe('data:changed', cb),
   onUpdateStatus: (cb) => subscribe('update:status', cb),
+  onPrivateStatus: (cb) => subscribe('private:status', cb),
   onRequestImport: (cb) => subscribe('menu:request-import', cb),
 })

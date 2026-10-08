@@ -1,6 +1,6 @@
 {
   "name": "xinghelu-mobile",
-  "version": "1.0.1",
+  "version": "1.1.0",
   "private": true,
   "description": "星河录 · 移动端（Capacitor 封装）",
   "scripts": {

@@ -345,6 +345,65 @@ function runSelfTest(filePath) {
     assert.strictEqual(leftovers.length, 0)
   })
 
+  t('私人任务密码：设置后可校验，错的不通过，且不明文落盘', () => {
+    assert.strictEqual(s.privatePasswordSet(), false, '默认就没设过密码')
+    s.setPrivatePassword('1234')
+    assert.strictEqual(s.privatePasswordSet(), true)
+    assert.strictEqual(s.verifyPrivatePassword('1234'), true, '正确密码应通过')
+    assert.strictEqual(s.verifyPrivatePassword('1235'), false, '错误密码不该通过')
+    assert.strictEqual(s.verifyPrivatePassword(''), false)
+    assert.strictEqual(s.verifyPrivatePassword(null), false)
+    const raw = fs.readFileSync(file, 'utf8')
+    assert.ok(!raw.includes('1234'), '密码明文不该写进数据文件')
+    const rec = s.data.settings.privatePassword
+    assert.ok(rec && rec.salt && rec.hash, '应存下 salt 与 hash')
+    assert.notStrictEqual(rec.hash, '1234')
+  })
+
+  t('私人任务密码：同样的密码两次得到不同哈希（加了随机盐）', () => {
+    const first = s.data.settings.privatePassword.hash
+    s.setPrivatePassword('1234')
+    assert.notStrictEqual(s.data.settings.privatePassword.hash, first, '加盐后哈希每次都应不同')
+    assert.strictEqual(s.verifyPrivatePassword('1234'), true)
+  })
+
+  t('私人任务密码：移除后回到未设置', () => {
+    s.clearPrivatePassword()
+    assert.strictEqual(s.privatePasswordSet(), false)
+    assert.strictEqual(s.verifyPrivatePassword('1234'), false)
+  })
+
+  t('统计与日历可用 keep 谓词排除私人任务', () => {
+    const day = s.data.tasks.length ? s.data.tasks[0].date : '2026-01-01'
+    const keep = (t) => (t.type || 'none') !== 'personal'
+    const d = new Date(day + 'T00:00:00')
+    const y = d.getFullYear()
+    const m = d.getMonth() + 1
+
+    // 注意：此时库里可能已经有更早用例造出来的私人任务，而且同一天可能不止一条，
+    // 所以不能拿「差值 1」当断言，要看的是「新增一条私人任务前后，带谓词的口径有没有变」。
+    const allBefore = s.stats(day).totalTasks
+    const noPrivBefore = s.stats(day, keep).totalTasks
+    const calAllBefore = s.monthOverview(y, m)[day].total
+    const calNoBefore = s.monthOverview(y, m, keep)[day].total
+    assert.ok(noPrivBefore < allBefore && calNoBefore < calAllBefore, '库里应已存在私人任务，否则这条用例没有意义')
+
+    const priv = s.addTask({ date: day, title: '私人任务不该进统计', type: 'personal' })
+
+    assert.strictEqual(s.stats(day).totalTasks, allBefore + 1, '不传谓词时统计包含私人任务')
+    assert.strictEqual(s.stats(day, keep).totalTasks, noPrivBefore, '传了谓词后，新增私人任务不该改变统计')
+    assert.strictEqual(s.monthOverview(y, m)[day].total, calAllBefore + 1, '不传谓词时日历包含私人任务')
+    assert.strictEqual(s.monthOverview(y, m, keep)[day].total, calNoBefore, '传了谓词后，日历不该包含私人任务')
+
+    // 搜索同理
+    const hitAll = s.search('私人任务不该进统计')
+    const hitNo = s.search('私人任务不该进统计', 80, keep)
+    assert.strictEqual(hitAll.tasks.length, 1, '不传谓词时搜得到')
+    assert.strictEqual(hitNo.tasks.length, 0, '锁住时搜索不该搜出私人任务')
+
+    s.deleteTask(priv.id, 'one')
+  })
+
   return `通过 ${pass.length} 项：${pass.join('、')}`
 }
 

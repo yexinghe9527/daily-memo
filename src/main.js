@@ -594,9 +594,51 @@ function buildMenu() {
  * IPC
  * ------------------------------------------------------------------ */
 
+/* ------------------------------------------------------------------ *
+ * 私人任务的界面锁
+ *
+ * 这是**界面锁**，不是内容加密：data.json 里私人任务的标题备注仍是明文，
+ * 它挡的是旁人瞄屏幕、随手翻应用；挡不住把数据文件拷走。真要防后者得做内容加密。
+ *
+ * 锁状态只活在内存里（不落盘），所以关掉应用一定回到锁定态。
+ * ------------------------------------------------------------------ */
+
+const PRIVATE_UNLOCK_MS = 10 * 60 * 1000 // 解锁后保持 10 分钟
+let privateUnlockedUntil = 0
+
+function isPrivateTask(t) {
+  return (t && (t.type || 'none')) === 'personal'
+}
+
+/** 没设密码 = 不锁；设了密码且不在解锁窗口内 = 锁 */
+function privateLocked() {
+  if (!store || !store.privatePasswordSet()) return false
+  return Date.now() >= privateUnlockedUntil
+}
+
+/** 传给 store 各查询方法的过滤谓词：锁住时把私人任务整体排除掉 */
+function privateKeep() {
+  return privateLocked() ? (t) => !isPrivateTask(t) : null
+}
+
+function privateStatus() {
+  const enabled = !!(store && store.privatePasswordSet())
+  return {
+    enabled,
+    locked: enabled && privateLocked(),
+    unlockLeftMs: enabled ? Math.max(0, privateUnlockedUntil - Date.now()) : 0,
+    privateCount: store ? store.data.tasks.filter(isPrivateTask).length : 0,
+  }
+}
+
+function pushPrivateStatus() {
+  broadcast('private:status', privateStatus())
+}
+
 function datePayload(dateKey) {
   const k = isValidKey(dateKey) ? dateKey : todayKey()
-  const tasks = store.listByDate(k)
+  const keep = privateKeep()
+  const tasks = keep ? store.listByDate(k).filter(keep) : store.listByDate(k)
   // 把当天用到的重复规则带过去，界面才能显示「每天 / 每周」而不是光秃秃的 groupId
   const repeatKinds = {}
   for (const t of tasks) {
@@ -608,7 +650,7 @@ function datePayload(dateKey) {
     today: todayKey(),
     tasks,
     memo: store.getMemo(k),
-    stats: store.stats(k),
+    stats: store.stats(k, keep),
     repeatKinds,
   }
 }
@@ -620,15 +662,19 @@ function registerIpc() {
     store.materialize(today)
     const carried = store.carryOver(today)
     store.touchOpened()
+    const keep = privateKeep()
+    // 设置里含 privatePassword（盐+哈希），不该送进渲染进程，脱敏后再给
+    const { privatePassword, ...safeSettings } = store.data.settings
     return {
       ...datePayload((payload && payload.date) || today),
       carried,
-      settings: store.data.settings,
+      settings: safeSettings,
+      private: privateStatus(),
       dataPath: store.filePath,
       recoveredFrom: store.data.meta.recoveredFrom || null,
       reminderFiredToday: store
         .listByDate(today)
-        .filter((t) => t.remindFired && t.remindFired === t.remindAt)
+        .filter((t) => (!keep || keep(t)) && t.remindFired && t.remindFired === t.remindAt)
         .map((t) => t.id),
     }
   })
@@ -724,7 +770,50 @@ function registerIpc() {
     return s
   })
 
-  ipcMain.handle('stats:get', (_e, payload) => store.stats(payload && payload.date))
+  /* ---- 私人任务的界面锁 ---- */
+
+  ipcMain.handle('private:status', () => privateStatus())
+
+  ipcMain.handle('private:unlock', (_e, payload) => {
+    if (!store.privatePasswordSet()) return { ok: false, error: '还没有设置密码' }
+    if (!store.verifyPrivatePassword((payload && payload.password) || '')) {
+      return { ok: false, error: '密码不对' }
+    }
+    privateUnlockedUntil = Date.now() + PRIVATE_UNLOCK_MS
+    pushPrivateStatus()
+    return { ok: true, status: privateStatus() }
+  })
+
+  ipcMain.handle('private:lock', () => {
+    privateUnlockedUntil = 0
+    pushPrivateStatus()
+    return { ok: true, status: privateStatus() }
+  })
+
+  ipcMain.handle('private:set', (_e, payload) => {
+    const p = payload || {}
+    const next = String(p.password || '')
+    if (!/^\d{4}$/.test(next)) return { ok: false, error: '密码请用 4 位数字' }
+    if (store.privatePasswordSet() && !store.verifyPrivatePassword(p.current || '')) {
+      return { ok: false, error: '当前密码不对' }
+    }
+    store.setPrivatePassword(next)
+    privateUnlockedUntil = Date.now() + PRIVATE_UNLOCK_MS // 刚设完就别马上再问一次
+    pushPrivateStatus()
+    return { ok: true, status: privateStatus() }
+  })
+
+  ipcMain.handle('private:remove', (_e, payload) => {
+    if (store.privatePasswordSet() && !store.verifyPrivatePassword((payload && payload.current) || '')) {
+      return { ok: false, error: '当前密码不对' }
+    }
+    store.clearPrivatePassword()
+    privateUnlockedUntil = 0
+    pushPrivateStatus()
+    return { ok: true, status: privateStatus() }
+  })
+
+  ipcMain.handle('stats:get', (_e, payload) => store.stats(payload && payload.date, privateKeep()))
 
   ipcMain.handle('sync:info', () => syncInfo())
   ipcMain.handle('sync:restart', () => {
@@ -741,12 +830,17 @@ function registerIpc() {
     const y = Number(p.year)
     const m = Number(p.month)
     if (!Number.isFinite(y) || !Number.isFinite(m)) throw new Error('年月不合法')
-    return store.monthOverview(y, m)
+    return store.monthOverview(y, m, privateKeep())
   })
 
-  ipcMain.handle('search', (_e, payload) => store.search(payload && payload.query))
+  ipcMain.handle('search', (_e, payload) => store.search(payload && payload.query, 80, privateKeep()))
 
   ipcMain.handle('data:export', async () => {
+    // 锁着私人分类时不许导出：导出是完整备份，不能悄悄少一半；
+    // 但也正因为它包含私人任务，不能让人随便点一下就全部写出去。
+    if (privateLocked() && store.data.tasks.some(isPrivateTask)) {
+      return { canceled: true, needUnlock: true, reason: '请先解锁私人任务再导出备份，否则备份会缺少私人任务' }
+    }
     const stamp = todayKey()
     const { canceled, filePath } = await dialog.showSaveDialog(win, {
       title: '导出备份',
@@ -825,10 +919,16 @@ function tick() {
     const moved = store.carryOver(today)
     broadcast('day:changed', { today, carried: moved })
   }
-  const due = store.dueReminders()
-  if (due.length) {
-    store.markReminded(due.map((t) => t.id))
-    showReminder(due)
+  const allDue = store.dueReminders()
+  if (allDue.length) {
+    // 私人分类锁着时，私人任务的提醒不能带标题（否则等于白锁），
+    // 但仍然弹一条中性的，并照样标记已弹 —— 免得解锁后一次性涌出一堆旧的。
+    const locked = privateLocked()
+    const due = locked ? allDue.filter((t) => !isPrivateTask(t)) : allDue
+    const hidden = locked ? allDue.filter(isPrivateTask) : []
+    store.markReminded(allDue.map((t) => t.id))
+    if (due.length) showReminder(due)
+    if (hidden.length) showReminder(null)
     broadcast('reminders:fired', { ids: due.map((t) => t.id) })
     refreshTray()
   }
@@ -836,14 +936,22 @@ function tick() {
 
 function showReminder(tasks) {
   if (!Notification.isSupported()) return
-  const title = tasks.length === 1 ? '任务提醒' : `${tasks.length} 项任务到点了`
-  const body =
-    tasks.length === 1
-      ? tasks[0].title
-      : tasks
-          .slice(0, 5)
-          .map((t) => `· ${t.title}`)
-          .join('\n')
+  let title
+  let body
+  if (tasks === null) {
+    // 私人分类锁着：只能提示「有这么回事」，绝不能带标题，否则锁等于白设
+    title = '星河录 · 私人任务提醒'
+    body = '有私人任务到点了，解锁后查看。'
+  } else {
+    title = tasks.length === 1 ? '任务提醒' : `${tasks.length} 项任务到点了`
+    body =
+      tasks.length === 1
+        ? tasks[0].title
+        : tasks
+            .slice(0, 5)
+            .map((t) => `· ${t.title}`)
+            .join('\n')
+  }
   try {
     const n = new Notification({ title, body, silent: false })
     n.on('click', () => {
@@ -1043,6 +1151,82 @@ async function runSmoke() {
     if (regenerated !== 0) throw new Error(`删除后第二天又生成了 ${regenerated} 条`)
 
     return `选项=${r.labels.join(' / ')} · 未选前仍在 · 选后从列表消失 · 次日重新生成 ${regenerated} 条 · 重复组已清除`
+  })
+
+  await check('私人任务界面锁：默认看不到，解锁后才出现', async () => {
+    const TITLE = '私人任务冒烟'
+    const r = await win.webContents.executeJavaScript(`(async () => {
+      const sleep = (ms) => new Promise((res) => setTimeout(res, ms))
+      const $ = (id) => document.getElementById(id)
+      const api = window.memoApi
+      const out = {}
+      const titles = () => [...document.querySelectorAll('.task-item .task-title')].map((n) => n.textContent)
+      const has = () => titles().indexOf(${JSON.stringify(TITLE)}) >= 0
+
+      // 设完密码默认是解锁态（刚设完不该马上再问一次），手动锁上，模拟「下次打开应用」
+      await api.privateSet({ password: '1234' })
+      await api.privateLock()
+      await sleep(450)
+
+      // 添加私人任务：用户要求添加不需要密码
+      $('newTitle').value = ${JSON.stringify(TITLE)}
+      if ($('newType')) $('newType').value = 'personal'
+      $('addBtn').click()
+      await sleep(650)
+      out.visibleWhileLocked = has()
+      out.rowsWhileLocked = titles()
+
+      // 切到「只看私人」：应弹密码框，而不是直接显示
+      $('typeFilter').value = 'personal'
+      $('typeFilter').dispatchEvent(new Event('change', { bubbles: true }))
+      await sleep(350)
+      out.modalShown = !$('pwdModal').hidden
+      out.modalTitle = $('pwdTitle').textContent
+      out.confirmRowHidden = $('pwdConfirmRow').hidden
+
+      // 先输错的
+      $('pwdNew').value = '9999'
+      $('pwdOk').click()
+      await sleep(550)
+      out.errorAfterWrong = $('pwdError').textContent
+      out.modalStillOpen = !$('pwdModal').hidden
+      out.visibleAfterWrong = has()
+
+      // 再输对的
+      $('pwdNew').value = '1234'
+      $('pwdOk').click()
+      await sleep(1000)
+      out.modalClosedAfterRight = $('pwdModal').hidden
+      out.filterAfterUnlock = $('typeFilter').value
+      out.visibleAfterUnlock = has()
+      out.lockBtnVisible = !$('privateLockBtn').hidden
+
+      // 「全部」视图永远不含私人任务
+      $('typeFilter').value = 'all'
+      $('typeFilter').dispatchEvent(new Event('change', { bubbles: true }))
+      await sleep(350)
+      out.privateInAllView = has()
+
+      // 收拾：移除密码并删掉这条任务，别影响后面的检查
+      await api.privateRemove('1234')
+      await sleep(350)
+      out.removed = (await api.privateStatus()).enabled === false
+      return out
+    })()`)
+
+    if (r.visibleWhileLocked) throw new Error('锁定时私人任务不该出现在列表里，实际出现了：' + JSON.stringify(r.rowsWhileLocked))
+    if (!r.modalShown) throw new Error('选「只看私人」没有要求输入密码')
+    if (String(r.modalTitle).indexOf('解锁') < 0) throw new Error(`密码框标题不对：${r.modalTitle}`)
+    if (r.confirmRowHidden !== true) throw new Error('解锁时不该要求「再输一次」')
+    if (!r.errorAfterWrong) throw new Error('输错密码没有任何提示')
+    if (!r.modalStillOpen) throw new Error('输错密码却把密码框关掉了')
+    if (r.visibleAfterWrong) throw new Error('输错密码却看到了私人任务')
+    if (!r.modalClosedAfterRight) throw new Error('输对密码后密码框没关闭')
+    if (r.filterAfterUnlock !== 'personal') throw new Error(`解锁后筛选应停在「只看私人」，实际 ${r.filterAfterUnlock}`)
+    if (!r.visibleAfterUnlock) throw new Error('解锁后仍看不到私人任务')
+    if (r.privateInAllView) throw new Error('「全部」视图里不该出现私人任务')
+    if (!r.removed) throw new Error('移除密码后 privateStatus.enabled 仍为 true')
+    return '锁定时隐藏 · 选私人弹密码框 · 错密码被拒且仍锁定 · 对密码解锁后可见 · 全部视图永不含私人'
   })
 
   await check('自动更新链路可用', async () => {

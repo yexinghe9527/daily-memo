@@ -7,6 +7,7 @@
 
 const fs = require('node:fs')
 const path = require('node:path')
+const crypto = require('node:crypto')
 
 const SCHEMA_VERSION = 1
 const DEFAULT_CARRY_OVER_WINDOW = 14
@@ -168,6 +169,10 @@ class Store {
         syncPort: 8765,
         syncServer: '', // 手机端：电脑地址，形如 192.168.1.5:8765
         autoCheckUpdate: true, // 启动时到 GitHub Releases 查一次新版本（可关）
+        // 私人任务的界面锁：只存 scrypt 派生值（盐 + 哈希），不存明文、不可逆推。
+        // 注意这是**界面锁**——data.json 里私人任务的标题备注仍是明文，
+        // 它挡的是「旁人瞄屏幕 / 随手翻应用」，挡不住把文件拷走。
+        privatePassword: null, // { salt, hash, setAt }
       },
       meta: { createdAt: Date.now(), lastOpened: null, openCount: 0, lastSyncAt: null, lastSyncFrom: null },
     }
@@ -559,14 +564,53 @@ class Store {
     return this.getMemo(dateKey)
   }
 
+  /* ---------- 私人任务的界面锁 ---------- */
+
+  privatePasswordSet() {
+    const r = this.data.settings.privatePassword
+    return !!(r && r.salt && r.hash)
+  }
+
+  /**
+   * 设置/修改密码。只落 scrypt 派生值，明文不写盘。
+   * @throws 密码为空时抛错，避免「设了个空密码」变成不锁。
+   */
+  setPrivatePassword(plain) {
+    const pwd = String(plain == null ? '' : plain)
+    if (!pwd) throw new Error('密码不能为空')
+    const salt = crypto.randomBytes(16).toString('hex')
+    const hash = crypto.scryptSync(pwd, salt, 32).toString('hex')
+    this.data.settings.privatePassword = { salt, hash, setAt: Date.now() }
+    this.save()
+    return true
+  }
+
+  /** 恒定时间比较，避免按字符逐位试出密码 */
+  verifyPrivatePassword(plain) {
+    const r = this.data.settings.privatePassword
+    if (!r || !r.salt || !r.hash) return false
+    const calc = crypto.scryptSync(String(plain == null ? '' : plain), r.salt, 32)
+    const want = Buffer.from(r.hash, 'hex')
+    if (calc.length !== want.length) return false
+    return crypto.timingSafeEqual(calc, want)
+  }
+
+  clearPrivatePassword() {
+    this.data.settings.privatePassword = null
+    this.save()
+    return true
+  }
+
   /* ---------- 统计 ---------- */
 
-  stats(todayK) {
+  stats(todayK, keep) {
     const today = isValidKey(todayK) ? todayK : todayKey()
     const byDate = new Map()
     let totalTasks = 0
     let totalDone = 0
     for (const t of this.data.tasks) {
+      // keep：可选的过滤谓词。锁住私人分类时传进来，让统计里也看不到它们的存在
+      if (keep && !keep(t)) continue
       totalTasks++
       if (t.done) totalDone++
       let b = byDate.get(t.date)
@@ -605,8 +649,8 @@ class Store {
     }
   }
 
-  /** 日历用：某月每天的 总数/完成数 */
-  monthOverview(year, month) {
+  /** 日历用：某月每天的 总数/完成数（keep 用于锁住私人分类时把它们排除在日历之外） */
+  monthOverview(year, month, keep) {
     const first = new Date(year, month - 1, 1)
     const days = new Date(year, month, 0).getDate()
     const out = {}
@@ -616,6 +660,7 @@ class Store {
     const from = toKey(first)
     const to = toKey(new Date(year, month - 1, days))
     for (const t of this.data.tasks) {
+      if (keep && !keep(t)) continue
       if (t.date < from || t.date > to) continue
       const b = out[t.date]
       if (!b) continue
@@ -627,12 +672,13 @@ class Store {
 
   /* ---------- 搜索 ---------- */
 
-  search(query, limit = 80) {
+  search(query, limit = 80, keep) {
     const q = String(query || '').trim().toLowerCase()
     // 返回结构必须保持一致，否则调用方在空查询时会拿到数组而崩在 .tasks 上
     if (!q) return { tasks: [], memos: [], truncated: false }
     const hits = []
     for (const t of this.data.tasks) {
+      if (keep && !keep(t)) continue
       const inTitle = t.title.toLowerCase().includes(q)
       const inNote = t.note.toLowerCase().includes(q)
       if (inTitle || inNote) hits.push(t)

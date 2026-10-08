@@ -52,6 +52,8 @@
     date: nowKey(),
     tasks: [],
     typeFilter: 'all', // all | work | personal | none（仅界面筛选，不入库）
+    // 私人任务界面锁的状态，由主进程推送，界面只读不改
+    private: { enabled: false, locked: false, unlockLeftMs: 0, privateCount: 0 },
     updateReadyToasted: false,
     memoText: '',
     stats: null,
@@ -110,6 +112,10 @@
     }
     const boot = await api.bootstrap({})
     applySettings(boot.settings)
+    // 启动时直接赋值，不走 applyPrivateStatus —— 那会触发一次 reloadDate，
+    // 而此刻 state.date 还没设好，会白拉一遍数据
+    state.private = Object.assign({}, state.private, boot.private || {})
+    renderPrivateUi()
     state.today = boot.today
     state.dataPath = boot.dataPath
     state.date = boot.date
@@ -250,18 +256,25 @@
     const list = $('taskList')
     list.textContent = ''
     const filtering = state.typeFilter !== 'all'
-    const visible = filtering ? state.tasks.filter((t) => (t.type || 'none') === state.typeFilter) : state.tasks
+    // 「全部」永远不含私人任务：私人是单独一块，只有显式选「只看私人」才会出现。
+    // 锁住时主进程根本不会把私人任务发下来，所以这里也看不到。
+    const visible = filtering
+      ? state.tasks.filter((t) => (t.type || 'none') === state.typeFilter)
+      : state.tasks.filter((t) => (t.type || 'none') !== 'personal')
     const empty = $('emptyState')
     empty.hidden = visible.length > 0
     if (visible.length === 0) {
       const rel = diffDays(state.today, state.date)
-      $('emptyText').textContent = filtering
-        ? `这一天没有「${TYPE_TEXT[state.typeFilter]}」类型的任务。`
-        : rel === 0
-          ? '今天还没有任务，在上面输入框里加一条吧。'
-          : rel < 0
-            ? '这一天没有留下任务记录。'
-            : '这一天还没有安排任务。'
+      $('emptyText').textContent =
+        state.typeFilter === 'personal' && state.private.enabled && state.private.locked
+          ? '私人任务已锁定，输入密码后才能查看。'
+          : filtering
+            ? `这一天没有「${TYPE_TEXT[state.typeFilter]}」类型的任务。`
+            : rel === 0
+              ? '今天还没有任务，在上面输入框里加一条吧。'
+              : rel < 0
+                ? '这一天没有留下任务记录。'
+                : '这一天还没有安排任务。'
     }
     for (const task of visible) list.appendChild(buildTaskItem(task))
   }
@@ -851,6 +864,104 @@
     }
   })
 
+  /* ------------------------------------------------ 私人任务的界面锁 */
+
+  let pwdResolve = null
+
+  function applyPrivateStatus(p) {
+    if (!p) return
+    const wasLocked = state.private.locked
+    state.private = Object.assign({}, state.private, p)
+    renderPrivateUi()
+    // 锁住时主进程就不再下发私人任务了；状态一变要重新拉一次，界面才跟得上
+    if (wasLocked !== state.private.locked) {
+      reloadDate().then(() => renderPrivateUi())
+    }
+  }
+
+  function renderPrivateUi() {
+    const p = state.private
+    const lockBtn = $('privateLockBtn')
+    if (lockBtn) lockBtn.hidden = !(p.enabled && !p.locked)
+    const btn = $('privatePwdBtn')
+    if (btn) btn.textContent = p.enabled ? '修改' : '设置'
+    const rm = $('privateRemoveBtn')
+    if (rm) rm.hidden = !p.enabled
+    const hint = $('privateHint')
+    if (hint) {
+      if (!p.enabled) {
+        hint.textContent = '未启用。设置之后私人任务默认不显示，要看得先输密码。'
+      } else if (p.locked) {
+        hint.textContent = `已启用，当前锁定。私人任务共 ${p.privateCount} 条，默认界面里看不到。注意：这只是界面锁，data.json 里仍是明文。`
+      } else {
+        hint.textContent = `已启用，当前已解锁（约 ${Math.max(1, Math.round(p.unlockLeftMs / 60000))} 分钟后自动重新锁定）。`
+      }
+    }
+  }
+
+  /** 弹出密码框并等结果。mode: 'unlock' | 'set' | 'change' | 'remove' */
+  function openPwdModal(mode) {
+    const m = $('pwdModal')
+    if (!m) return Promise.resolve(false)
+    if (pwdResolve) closePwdModal(false)
+    m.dataset.mode = mode
+    $('pwdError').textContent = ''
+    $('pwdCurrent').value = ''
+    $('pwdNew').value = ''
+    $('pwdConfirm').value = ''
+    const needCurrent = mode === 'change' || mode === 'remove'
+    const needNew = mode !== 'remove'
+    const needConfirm = mode === 'set' || mode === 'change'
+    $('pwdTitle').textContent =
+      { unlock: '解锁私人任务', set: '设置私人任务密码', change: '修改密码', remove: '移除密码' }[mode] || '输入密码'
+    $('pwdCurrentRow').hidden = !needCurrent
+    $('pwdNewRow').hidden = !needNew
+    $('pwdConfirmRow').hidden = !needConfirm
+    $('pwdNewLabel').textContent = mode === 'unlock' ? '密码' : '新密码'
+    $('pwdOk').textContent = mode === 'remove' ? '移除' : '确定'
+    m.hidden = false
+    setTimeout(() => (needCurrent ? $('pwdCurrent') : $('pwdNew')).focus(), 60)
+    return new Promise((resolve) => {
+      pwdResolve = resolve
+    })
+  }
+
+  function closePwdModal(ok) {
+    const m = $('pwdModal')
+    if (m) m.hidden = true
+    const r = pwdResolve
+    pwdResolve = null
+    if (r) r(!!ok)
+  }
+
+  async function submitPwdModal() {
+    const m = $('pwdModal')
+    if (!m || m.hidden) return
+    const mode = m.dataset.mode
+    const cur = $('pwdCurrent').value
+    const next = $('pwdNew').value
+    const again = $('pwdConfirm').value
+    const fail = (msg) => {
+      $('pwdError').textContent = msg
+    }
+    if (mode === 'set' || mode === 'change') {
+      if (!/^\d{4}$/.test(next)) return fail('密码请用 4 位数字')
+      if (next !== again) return fail('两次输入不一致')
+    }
+    if (mode === 'unlock' && !next) return fail('请输入密码')
+
+    let r
+    if (mode === 'unlock') r = await api.privateUnlock(next)
+    else if (mode === 'remove') r = await api.privateRemove(cur)
+    else r = await api.privateSet({ password: next, current: cur })
+
+    if (!r || !r.ok) return fail((r && r.error) || '操作失败')
+    if (r.status) applyPrivateStatus(r.status)
+    closePwdModal(true)
+    const msg = { unlock: '已解锁私人任务', set: '私人任务密码已设置', change: '密码已修改', remove: '密码已移除，私人任务恢复默认显示' }[mode]
+    if (msg) toast(msg, 'ok')
+  }
+
   function openSettings() {
     syncSettingsForm()
     $('settingsModal').hidden = false
@@ -941,8 +1052,64 @@
     // 类型筛选（只影响显示，不动数据）
     if ($('typeFilter')) {
       $('typeFilter').addEventListener('change', (e) => {
-        state.typeFilter = e.target.value
+        const want = e.target.value
+        // 选「只看私人」且锁着：先要密码。没解锁就退回原来的筛选，不报错、不闪。
+        if (want === 'personal' && state.private.enabled && state.private.locked) {
+          e.target.value = state.typeFilter
+          openPwdModal('unlock').then((ok) => {
+            if (!ok) return
+            state.typeFilter = 'personal'
+            $('typeFilter').value = 'personal'
+            renderTasks()
+            if (state.private.privateCount === 0) toast('还没有私人任务')
+          })
+          return
+        }
+        state.typeFilter = want
         renderTasks()
+      })
+    }
+
+    // 私人任务密码：设置 / 修改 / 移除 / 立即锁定
+    if ($('privatePwdBtn')) {
+      $('privatePwdBtn').addEventListener('click', () => {
+        openPwdModal(state.private.enabled ? 'change' : 'set')
+      })
+    }
+    if ($('privateRemoveBtn')) {
+      $('privateRemoveBtn').addEventListener('click', () => {
+        openPwdModal('remove')
+      })
+    }
+    if ($('privateLockBtn')) {
+      $('privateLockBtn').addEventListener('click', guard(async () => {
+        await api.privateLock()
+        if (state.typeFilter === 'personal') {
+          state.typeFilter = 'all'
+          if ($('typeFilter')) $('typeFilter').value = 'all'
+        }
+        toast('已重新锁定私人任务', 'ok')
+      }))
+    }
+    if (api.onPrivateStatus) api.onPrivateStatus(applyPrivateStatus)
+
+    // 密码弹窗
+    if ($('pwdOk')) $('pwdOk').addEventListener('click', () => guard(submitPwdModal)())
+    if ($('pwdCancel')) $('pwdCancel').addEventListener('click', () => closePwdModal(false))
+    if ($('pwdClose')) $('pwdClose').addEventListener('click', () => closePwdModal(false))
+    if ($('pwdModal')) {
+      $('pwdModal').addEventListener('click', (e) => {
+        if (e.target === $('pwdModal')) closePwdModal(false)
+      })
+      ;['pwdCurrent', 'pwdNew', 'pwdConfirm'].forEach((id) => {
+        if ($(id)) {
+          $(id).addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') {
+              e.preventDefault()
+              guard(submitPwdModal)()
+            }
+          })
+        }
       })
     }
 
