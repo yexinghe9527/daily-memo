@@ -84,7 +84,12 @@ function createWindow() {
   win.on('resize', queueSaveBounds)
   win.on('move', queueSaveBounds)
   win.on('show', refreshTray)
-  win.on('hide', refreshTray)
+  win.on('hide', () => {
+    refreshTray()
+    // 窗口收起（✕ 最小化到托盘、或直接隐藏）就重新锁上私人分类：
+    // 下次打开要重新输密码，不能因为刚才解锁过就一直敞着
+    lockPrivateNow()
+  })
 
   win.on('close', (e) => {
     persistBounds()
@@ -633,6 +638,17 @@ function privateStatus() {
 
 function pushPrivateStatus() {
   broadcast('private:status', privateStatus())
+}
+
+/**
+ * 立刻收回解锁。用于「离开只看私人」「窗口收起/关闭」这类场景：
+ * 解锁只对当前这一次查看有效，不留给下一次。
+ */
+function lockPrivateNow() {
+  if (!store || !store.privatePasswordSet()) return
+  if (privateUnlockedUntil === 0) return
+  privateUnlockedUntil = 0
+  pushPrivateStatus()
 }
 
 function datePayload(dateKey) {
@@ -1207,7 +1223,20 @@ async function runSmoke() {
       await sleep(350)
       out.privateInAllView = has()
 
-      // 收拾：移除密码并删掉这条任务，别影响后面的检查
+      // 离开「只看私人」应当立刻收回解锁，而不是留到超时
+      await sleep(500)
+      out.lockedAfterLeaving = (await api.privateStatus()).locked
+
+      // 再选一次「只看私人」，必须重新要密码
+      $('typeFilter').value = 'personal'
+      $('typeFilter').dispatchEvent(new Event('change', { bubbles: true }))
+      await sleep(450)
+      out.modalShownAgain = !$('pwdModal').hidden
+      out.relockedNotVisible = !has()
+      if ($('pwdCancel')) $('pwdCancel').click()
+      await sleep(250)
+
+      // 收拾：移除密码，别影响后面的检查
       await api.privateRemove('1234')
       await sleep(350)
       out.removed = (await api.privateStatus()).enabled === false
@@ -1225,8 +1254,30 @@ async function runSmoke() {
     if (r.filterAfterUnlock !== 'personal') throw new Error(`解锁后筛选应停在「只看私人」，实际 ${r.filterAfterUnlock}`)
     if (!r.visibleAfterUnlock) throw new Error('解锁后仍看不到私人任务')
     if (r.privateInAllView) throw new Error('「全部」视图里不该出现私人任务')
+    if (!r.lockedAfterLeaving) throw new Error('离开「只看私人」后没有立刻重新锁定')
+    if (!r.modalShownAgain) throw new Error('再次进入「只看私人」没有重新要求输密码')
+    if (!r.relockedNotVisible) throw new Error('重新锁定后仍能看到私人任务')
     if (!r.removed) throw new Error('移除密码后 privateStatus.enabled 仍为 true')
-    return '锁定时隐藏 · 选私人弹密码框 · 错密码被拒且仍锁定 · 对密码解锁后可见 · 全部视图永不含私人'
+    return '锁定时隐藏 · 选私人弹密码框 · 错密码被拒且仍锁定 · 对密码解锁后可见 · 全部视图永不含私人 · 离开即重锁 · 再进需再输密码'
+  })
+
+  await check('私人任务锁：窗口收起后重新锁定', async () => {
+    const sleep2 = (ms) => new Promise((r) => setTimeout(r, ms))
+    const set = await win.webContents.executeJavaScript(`window.memoApi.privateSet({ password: '4321' })`)
+    if (!set || !set.ok) throw new Error('设置密码失败：' + JSON.stringify(set))
+    const before = await win.webContents.executeJavaScript('window.memoApi.privateStatus()')
+    if (before.locked) throw new Error('刚设完密码不该是锁定态（否则用户马上又要输一遍）')
+
+    // 真正走一遍「显示 → 收起」，相当于点 ✕ 最小化到托盘
+    win.show()
+    await sleep2(400)
+    win.hide()
+    await sleep2(500)
+
+    const after = await win.webContents.executeJavaScript('window.memoApi.privateStatus()')
+    if (!after.locked) throw new Error('窗口收起后没有重新锁定私人任务')
+    await win.webContents.executeJavaScript(`window.memoApi.privateRemove('4321')`)
+    return `窗口收起后 locked=${after.locked}（收起前 ${before.locked}）`
   })
 
   await check('自动更新链路可用', async () => {

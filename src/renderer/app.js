@@ -1053,6 +1053,7 @@
     if ($('typeFilter')) {
       $('typeFilter').addEventListener('change', (e) => {
         const want = e.target.value
+        const leavingPrivate = state.typeFilter === 'personal' && want !== 'personal'
         // 选「只看私人」且锁着：先要密码。没解锁就退回原来的筛选，不报错、不闪。
         if (want === 'personal' && state.private.enabled && state.private.locked) {
           e.target.value = state.typeFilter
@@ -1067,6 +1068,10 @@
         }
         state.typeFilter = want
         renderTasks()
+        // 一离开「只看私人」就立刻收回解锁：解锁只对这一次查看有效，下次要重新输密码
+        if (leavingPrivate && state.private.enabled && !state.private.locked) {
+          api.privateLock().then(() => toast('已重新锁定私人任务'))
+        }
       })
     }
 
